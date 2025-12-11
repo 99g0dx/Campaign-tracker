@@ -3,18 +3,13 @@ import { pgTable, text, varchar, integer, real, timestamp, serial } from "drizzl
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Campaigns table
+// Campaigns table - simplified to track song campaigns
 export const campaigns = pgTable("campaigns", {
   id: serial("id").primaryKey(),
   name: text("name").notNull(),
-  channel: text("channel").notNull(),
-  status: text("status").notNull().default("Draft"),
-  spend: real("spend").notNull().default(0),
-  impressions: integer("impressions").notNull().default(0),
-  clicks: integer("clicks").notNull().default(0),
-  conversions: integer("conversions").notNull().default(0),
-  revenue: real("revenue").notNull().default(0),
-  engagementRate: real("engagement_rate").notNull().default(0),
+  songTitle: text("song_title").notNull(),
+  songArtist: text("song_artist"),
+  status: text("status").notNull().default("Active"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -26,29 +21,10 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
 export type Campaign = typeof campaigns.$inferSelect;
 
-// Editing tasks table
-export const editingTasks = pgTable("editing_tasks", {
-  id: serial("id").primaryKey(),
-  title: text("title").notNull(),
-  campaignName: text("campaign_name").notNull(),
-  assignee: text("assignee").notNull(),
-  status: text("status").notNull().default("Briefing"),
-  dueDate: timestamp("due_date").notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
-
-export const insertEditingTaskSchema = createInsertSchema(editingTasks).omit({
-  id: true,
-  createdAt: true,
-});
-
-export type InsertEditingTask = z.infer<typeof insertEditingTaskSchema>;
-export type EditingTask = typeof editingTasks.$inferSelect;
-
 // Social links table for tracking social media posts
 export const socialLinks = pgTable("social_links", {
   id: serial("id").primaryKey(),
-  campaignId: integer("campaign_id").references(() => campaigns.id),
+  campaignId: integer("campaign_id").references(() => campaigns.id).notNull(),
   url: text("url").notNull(),
   platform: text("platform").notNull(),
   postId: text("post_id"),
@@ -73,6 +49,16 @@ export const insertSocialLinkSchema = createInsertSchema(socialLinks).omit({
 
 export type InsertSocialLink = z.infer<typeof insertSocialLinkSchema>;
 export type SocialLink = typeof socialLinks.$inferSelect;
+
+// Campaign with aggregated stats from social links
+export type CampaignWithStats = Campaign & {
+  totalViews: number;
+  totalLikes: number;
+  totalComments: number;
+  totalShares: number;
+  totalEngagement: number;
+  postCount: number;
+};
 
 // Users table (existing)
 export const users = pgTable("users", {

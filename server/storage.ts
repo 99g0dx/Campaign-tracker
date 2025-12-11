@@ -1,27 +1,21 @@
 import { db } from "./db";
-import { eq, desc, asc } from "drizzle-orm";
+import { eq, desc, sql } from "drizzle-orm";
 import {
   campaigns,
-  editingTasks,
   socialLinks,
   type Campaign,
   type InsertCampaign,
-  type EditingTask,
-  type InsertEditingTask,
   type SocialLink,
   type InsertSocialLink,
+  type CampaignWithStats,
 } from "@shared/schema";
 
 export interface IStorage {
   // Campaigns
   getCampaigns(): Promise<Campaign[]>;
+  getCampaignsWithStats(): Promise<CampaignWithStats[]>;
   getCampaign(id: number): Promise<Campaign | undefined>;
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
-  
-  // Editing Tasks
-  getEditingTasks(): Promise<EditingTask[]>;
-  getEditingTask(id: number): Promise<EditingTask | undefined>;
-  createEditingTask(task: InsertEditingTask): Promise<EditingTask>;
   
   // Social Links
   getSocialLinks(): Promise<SocialLink[]>;
@@ -39,6 +33,29 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
   }
 
+  async getCampaignsWithStats(): Promise<CampaignWithStats[]> {
+    const allCampaigns = await this.getCampaigns();
+    const allLinks = await this.getSocialLinks();
+    
+    return allCampaigns.map((campaign) => {
+      const campaignLinks = allLinks.filter((link) => link.campaignId === campaign.id);
+      const totalViews = campaignLinks.reduce((sum, l) => sum + (l.views || 0), 0);
+      const totalLikes = campaignLinks.reduce((sum, l) => sum + (l.likes || 0), 0);
+      const totalComments = campaignLinks.reduce((sum, l) => sum + (l.comments || 0), 0);
+      const totalShares = campaignLinks.reduce((sum, l) => sum + (l.shares || 0), 0);
+      
+      return {
+        ...campaign,
+        totalViews,
+        totalLikes,
+        totalComments,
+        totalShares,
+        totalEngagement: totalLikes + totalComments + totalShares,
+        postCount: campaignLinks.length,
+      };
+    });
+  }
+
   async getCampaign(id: number): Promise<Campaign | undefined> {
     const [campaign] = await db.select().from(campaigns).where(eq(campaigns.id, id));
     return campaign;
@@ -47,20 +64,6 @@ export class DatabaseStorage implements IStorage {
   async createCampaign(campaign: InsertCampaign): Promise<Campaign> {
     const [newCampaign] = await db.insert(campaigns).values(campaign).returning();
     return newCampaign;
-  }
-
-  async getEditingTasks(): Promise<EditingTask[]> {
-    return await db.select().from(editingTasks).orderBy(asc(editingTasks.dueDate));
-  }
-
-  async getEditingTask(id: number): Promise<EditingTask | undefined> {
-    const [task] = await db.select().from(editingTasks).where(eq(editingTasks.id, id));
-    return task;
-  }
-
-  async createEditingTask(task: InsertEditingTask): Promise<EditingTask> {
-    const [newTask] = await db.insert(editingTasks).values(task).returning();
-    return newTask;
   }
 
   async getSocialLinks(): Promise<SocialLink[]> {
@@ -93,93 +96,27 @@ export class DatabaseStorage implements IStorage {
 
   async seedDataIfEmpty(): Promise<void> {
     const existingCampaigns = await db.select().from(campaigns).limit(1);
-    const existingTasks = await db.select().from(editingTasks).limit(1);
 
     if (existingCampaigns.length === 0) {
-      console.log("Seeding campaigns...");
-      const now = new Date();
-      const daysAgo = (days: number) => new Date(now.getTime() - days * 86400000);
-
+      console.log("Seeding sample campaigns...");
       await db.insert(campaigns).values([
         {
-          name: "Kah-Lo - Somersaults TikTok Push",
-          channel: "TikTok",
+          name: "Summer Vibes Launch",
+          songTitle: "Summertime",
+          songArtist: "DJ Sunny",
           status: "Active",
-          spend: 500,
-          impressions: 120000,
-          clicks: 15000,
-          conversions: 1200,
-          revenue: 2200,
-          engagementRate: 14,
-          createdAt: daysAgo(6),
         },
         {
-          name: "Rema Fan Edit Challenge",
-          channel: "Instagram",
+          name: "Viral Dance Challenge",
+          songTitle: "Move It",
+          songArtist: "Beat Master",
           status: "Active",
-          spend: 800,
-          impressions: 200000,
-          clicks: 24000,
-          conversions: 1800,
-          revenue: 4100,
-          engagementRate: 18,
-          createdAt: daysAgo(4),
         },
         {
-          name: "Brand UGC Influencer Sprint",
-          channel: "YouTube",
+          name: "Holiday Special",
+          songTitle: "Jingle Beats",
+          songArtist: "Winter Sound",
           status: "Completed",
-          spend: 1200,
-          impressions: 300000,
-          clicks: 35000,
-          conversions: 3000,
-          revenue: 6800,
-          engagementRate: 16,
-          createdAt: daysAgo(2),
-        },
-      ]);
-    }
-
-    if (existingTasks.length === 0) {
-      console.log("Seeding editing tasks...");
-      const now = new Date();
-      const daysAhead = (days: number) => new Date(now.getTime() + days * 86400000);
-
-      await db.insert(editingTasks).values([
-        {
-          title: "Somersaults TikTok Edit v1",
-          campaignName: "Kah-Lo - Somersaults TikTok Push",
-          assignee: "Tomi",
-          status: "Editing",
-          dueDate: daysAhead(1),
-        },
-        {
-          title: "Rema Challenge Overlay Pack",
-          campaignName: "Rema Fan Edit Challenge",
-          assignee: "Ada",
-          status: "In Review",
-          dueDate: daysAhead(2),
-        },
-        {
-          title: "UGC Script Refine",
-          campaignName: "Brand UGC Influencer Sprint",
-          assignee: "Emeka",
-          status: "Approved",
-          dueDate: daysAhead(3),
-        },
-        {
-          title: "Instagram Reels Cutdown",
-          campaignName: "Rema Fan Edit Challenge",
-          assignee: "Daye",
-          status: "Briefing",
-          dueDate: daysAhead(4),
-        },
-        {
-          title: "YouTube Thumbnail Concepts",
-          campaignName: "Brand UGC Influencer Sprint",
-          assignee: "Zee",
-          status: "Blocked",
-          dueDate: daysAhead(5),
         },
       ]);
     }
