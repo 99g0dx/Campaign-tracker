@@ -21,6 +21,10 @@ export const insertCampaignSchema = createInsertSchema(campaigns).omit({
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
 export type Campaign = typeof campaigns.$inferSelect;
 
+// Post status options for workflow tracking
+export const postStatusOptions = ["pending", "briefed", "active", "done"] as const;
+export type PostStatus = typeof postStatusOptions[number];
+
 // Social links table for tracking social media posts
 export const socialLinks = pgTable("social_links", {
   id: serial("id").primaryKey(),
@@ -28,6 +32,8 @@ export const socialLinks = pgTable("social_links", {
   url: text("url").notNull(),
   platform: text("platform").notNull(),
   postId: text("post_id"),
+  creatorName: text("creator_name"),
+  postStatus: text("post_status").notNull().default("pending"),
   views: integer("views").default(0),
   likes: integer("likes").default(0),
   comments: integer("comments").default(0),

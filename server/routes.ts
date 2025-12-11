@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCampaignSchema, insertSocialLinkSchema } from "@shared/schema";
+import { insertCampaignSchema, insertSocialLinkSchema, postStatusOptions } from "@shared/schema";
 import { z } from "zod";
 import { scrapeSocialLink, getPlatformFromUrl } from "./scraper";
 
@@ -88,6 +88,7 @@ export async function registerRoutes(
       const urlSchema = z.object({
         url: z.string().url("Please enter a valid URL"),
         campaignId: z.number(),
+        creatorName: z.string().optional(),
       });
 
       const parsed = urlSchema.safeParse(req.body);
@@ -95,7 +96,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.errors });
       }
 
-      const { url, campaignId } = parsed.data;
+      const { url, campaignId, creatorName } = parsed.data;
       const platform = getPlatformFromUrl(url);
 
       if (platform === "Unknown") {
@@ -115,6 +116,8 @@ export async function registerRoutes(
         url,
         platform,
         campaignId,
+        creatorName: creatorName || null,
+        postStatus: "pending" as const,
         views: 0,
         likes: 0,
         comments: 0,
@@ -189,6 +192,37 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Failed to rescrape social link:", error);
       res.status(500).json({ error: "Failed to rescrape social link" });
+    }
+  });
+
+  // Update social link (post status, creator name)
+  app.patch("/api/social-links/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid link ID" });
+      }
+
+      const updateSchema = z.object({
+        postStatus: z.enum(postStatusOptions).optional(),
+        creatorName: z.string().optional(),
+      });
+
+      const parsed = updateSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+
+      const link = await storage.getSocialLink(id);
+      if (!link) {
+        return res.status(404).json({ error: "Social link not found" });
+      }
+
+      const updated = await storage.updateSocialLink(id, parsed.data);
+      res.json(updated);
+    } catch (error) {
+      console.error("Failed to update social link:", error);
+      res.status(500).json({ error: "Failed to update social link" });
     }
   });
 
