@@ -21,10 +21,10 @@ import { Search, ArrowUpDown } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface Campaign {
-  id: string;
+  id: number;
   name: string;
   channel: string;
-  status: "Active" | "Paused" | "Completed" | "Draft";
+  status: string;
   spend: number;
   impressions: number;
   clicks: number;

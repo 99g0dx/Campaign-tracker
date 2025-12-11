@@ -17,11 +17,9 @@ import CreativeStatusChart from "@/components/CreativeStatusChart";
 import CampaignTable, { type Campaign } from "@/components/CampaignTable";
 import EditingTaskCard, { type EditingTask } from "@/components/EditingTaskCard";
 import AddCampaignModal, { type NewCampaignData } from "@/components/AddCampaignModal";
-import { useFirebase } from "@/hooks/useFirebase";
+import { useCampaigns, useEditingTasks, useAddCampaign } from "@/hooks/useCampaigns";
 import { useToast } from "@/hooks/use-toast";
 
-// Mock performance data (would come from aggregated campaign data in production)
-// todo: replace with real aggregated data from Firebase
 const performanceData = [
   { date: "Dec 5", conversions: 800, clicks: 12000 },
   { date: "Dec 6", conversions: 1200, clicks: 15000 },
@@ -69,51 +67,15 @@ function LoadingSkeleton() {
   );
 }
 
-function ConfigurationPrompt() {
-  return (
-    <div className="min-h-screen bg-background">
-      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-6">
-          <div className="flex items-center gap-3">
-            <BarChart3 className="h-6 w-6 text-primary" />
-            <h1 className="text-xl font-semibold">Campaign Tracker</h1>
-          </div>
-        </div>
-      </header>
-      <main className="mx-auto max-w-screen-2xl px-6 py-16">
-        <Card className="mx-auto max-w-xl p-8">
-          <div className="flex flex-col items-center gap-6 text-center">
-            <div className="rounded-full bg-yellow-500/10 p-4">
-              <AlertCircle className="h-8 w-8 text-yellow-500" />
-            </div>
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold">Firebase Configuration Required</h2>
-              <p className="text-muted-foreground">
-                To use the Campaign Tracker, you need to configure Firebase with your project
-                credentials. Please add the following environment variables:
-              </p>
-            </div>
-            <div className="w-full space-y-2 rounded-lg bg-muted p-4 text-left font-mono text-sm">
-              <p>VITE_FIREBASE_API_KEY</p>
-              <p>VITE_FIREBASE_PROJECT_ID</p>
-              <p>VITE_FIREBASE_APP_ID</p>
-            </div>
-            <p className="text-sm text-muted-foreground">
-              Get these values from your Firebase Console under Project Settings.
-            </p>
-          </div>
-        </Card>
-      </main>
-    </div>
-  );
-}
-
 export default function Dashboard() {
-  const { campaigns, editingTasks, loading, error, isConfigured, addCampaign } = useFirebase();
+  const { data: campaigns = [], isLoading: campaignsLoading, error: campaignsError } = useCampaigns();
+  const { data: editingTasks = [], isLoading: tasksLoading } = useEditingTasks();
+  const addCampaignMutation = useAddCampaign();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const { toast } = useToast();
 
-  // Calculate KPIs from campaign data
+  const loading = campaignsLoading || tasksLoading;
+
   const kpis = useMemo(() => {
     if (campaigns.length === 0) {
       return { roi: 0, cpa: 0, engagedUsers: 0, completionRate: 0 };
@@ -137,7 +99,6 @@ export default function Dashboard() {
     return { roi, cpa, engagedUsers, completionRate };
   }, [campaigns, editingTasks]);
 
-  // Calculate creative status distribution
   const creativeStatusData = useMemo(() => {
     if (editingTasks.length === 0) return [];
     const buckets: Record<string, number> = {};
@@ -149,7 +110,7 @@ export default function Dashboard() {
 
   const handleAddCampaign = async (data: NewCampaignData) => {
     try {
-      await addCampaign(data);
+      await addCampaignMutation.mutateAsync(data);
       toast({
         title: "Campaign created",
         description: `"${data.name}" has been added successfully.`,
@@ -173,24 +134,17 @@ export default function Dashboard() {
     console.log("Viewing task:", task.title);
   };
 
-  // Show configuration prompt if Firebase is not configured
-  if (!isConfigured) {
-    return <ConfigurationPrompt />;
-  }
-
-  // Show loading state
   if (loading) {
     return <LoadingSkeleton />;
   }
 
-  // Show error state
-  if (error) {
+  if (campaignsError) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-background">
         <Card className="max-w-md p-8 text-center">
           <AlertCircle className="mx-auto mb-4 h-12 w-12 text-destructive" />
           <h2 className="mb-2 text-xl font-semibold">Something went wrong</h2>
-          <p className="text-muted-foreground">{error}</p>
+          <p className="text-muted-foreground">Failed to load campaigns. Please refresh the page.</p>
         </Card>
       </div>
     );
@@ -212,7 +166,6 @@ export default function Dashboard() {
       </header>
 
       <main className="mx-auto max-w-screen-2xl space-y-8 px-6 py-8">
-        {/* KPI Cards */}
         <section>
           <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
             <KPICard
@@ -245,18 +198,15 @@ export default function Dashboard() {
           </div>
         </section>
 
-        {/* Charts Section */}
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <PerformanceChart data={performanceData} title="7-Day Performance Trend" />
           <CreativeStatusChart data={creativeStatusData} title="Creative Production Status" />
         </section>
 
-        {/* Campaign Table */}
         <section>
           <CampaignTable campaigns={campaigns} onCampaignClick={handleCampaignClick} />
         </section>
 
-        {/* Editing Tasks Section */}
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-4">
             <h2 className="text-lg font-medium">Editing Tasks</h2>

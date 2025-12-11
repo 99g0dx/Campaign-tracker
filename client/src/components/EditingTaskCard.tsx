@@ -5,12 +5,12 @@ import { Calendar, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export interface EditingTask {
-  id: string;
+  id: number;
   title: string;
   campaignName: string;
   assignee: string;
-  status: "Approved" | "In Review" | "Editing" | "Briefing" | "Blocked";
-  dueDate: Date; // Raw Date object for proper comparisons
+  status: string;
+  dueDate: string | Date;
 }
 
 interface EditingTaskCardProps {
@@ -18,7 +18,7 @@ interface EditingTaskCardProps {
   onClick?: (task: EditingTask) => void;
 }
 
-const STATUS_STYLES: Record<EditingTask["status"], { bg: string; text: string; border: string }> = {
+const STATUS_STYLES: Record<string, { bg: string; text: string; border: string }> = {
   Approved: { bg: "bg-emerald-500/10", text: "text-emerald-500", border: "border-l-emerald-500" },
   "In Review": { bg: "bg-yellow-500/10", text: "text-yellow-500", border: "border-l-yellow-500" },
   Editing: { bg: "bg-blue-500/10", text: "text-blue-500", border: "border-l-blue-500" },
@@ -26,8 +26,9 @@ const STATUS_STYLES: Record<EditingTask["status"], { bg: string; text: string; b
   Blocked: { bg: "bg-red-500/10", text: "text-red-500", border: "border-l-red-500" },
 };
 
-function formatDate(date: Date): string {
-  return date.toLocaleDateString("en-US", {
+function formatDate(date: Date | string): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -35,7 +36,7 @@ function formatDate(date: Date): string {
 }
 
 export default function EditingTaskCard({ task, onClick }: EditingTaskCardProps) {
-  const statusStyle = STATUS_STYLES[task.status];
+  const statusStyle = STATUS_STYLES[task.status] || STATUS_STYLES.Briefing;
   const initials = task.assignee
     .split(" ")
     .map((n) => n[0])
@@ -43,10 +44,9 @@ export default function EditingTaskCard({ task, onClick }: EditingTaskCardProps)
     .toUpperCase()
     .slice(0, 2);
 
-  // Compare dates properly using Date objects
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const dueDate = new Date(task.dueDate);
+  const dueDate = typeof task.dueDate === "string" ? new Date(task.dueDate) : task.dueDate;
   dueDate.setHours(0, 0, 0, 0);
   const isOverdue = dueDate < today && task.status !== "Approved";
 
