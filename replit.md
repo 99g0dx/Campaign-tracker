@@ -45,23 +45,27 @@ shared/
 - `campaignId` - Foreign key to campaigns
 - `url` - Social media post URL
 - `platform` - TikTok/Instagram/YouTube/Twitter/Facebook
+- `creatorName` - Optional creator/influencer name
+- `postStatus` - Workflow status: pending/briefed/active/done
 - `views`, `likes`, `comments`, `shares` - Engagement metrics
-- `status` - pending/scraping/scraped/error
+- `status` - Scraping status: pending/scraping/scraped/error
 - `lastScrapedAt` - When data was last scraped
 
 ## API Endpoints
 - `GET /api/campaigns` - Get all campaigns with aggregated stats
 - `POST /api/campaigns` - Create new campaign
 - `GET /api/social-links` - Get all social links
-- `POST /api/social-links` - Add new social link (triggers scraping)
+- `POST /api/social-links` - Add new social link with optional creatorName (triggers scraping)
+- `PATCH /api/social-links/:id` - Update post status or creator name
 - `POST /api/social-links/:id/rescrape` - Rescrape engagement data
 
 ## Features
 1. **Create Campaigns** - Name + Song title + Artist
-2. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs
-3. **Track Engagement** - Automatic scraping of views, likes, comments, shares
-4. **Dashboard** - Overview of total views, engagement, posts, and active campaigns
-5. **Per-Campaign Stats** - See aggregated engagement for each campaign
+2. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs with optional creator name
+3. **Post Status Tracking** - Track workflow status per post: Pending, Briefed, Active, Done
+4. **Track Engagement** - Automatic scraping of views, likes, comments, shares
+5. **Dashboard** - Overview of total views, engagement, posts, and active campaigns
+6. **Per-Campaign Stats** - See aggregated engagement for each campaign
 
 ## Social Media Scraping
 The scraper attempts to extract engagement data from supported platforms:
