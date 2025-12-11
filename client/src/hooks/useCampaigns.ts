@@ -121,3 +121,25 @@ export function useRescrapeSocialLink() {
     },
   });
 }
+
+export interface EngagementHistoryPoint {
+  date: string;
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  totalEngagement: number;
+}
+
+export function useCampaignEngagementHistory(campaignId: number) {
+  return useQuery<EngagementHistoryPoint[]>({
+    queryKey: ["/api/campaigns", campaignId, "engagement-history"],
+    queryFn: async () => {
+      const response = await fetch(`/api/campaigns/${campaignId}/engagement-history`);
+      if (!response.ok) throw new Error("Failed to fetch engagement history");
+      return response.json();
+    },
+    enabled: !!campaignId,
+    refetchInterval: 30000,
+  });
+}

@@ -67,6 +67,7 @@ shared/
 4. **Track Engagement** - Automatic scraping of views, likes, comments, shares
 5. **Dashboard** - Overview of total views, engagement, posts, and active campaigns
 6. **Per-Campaign Stats** - See aggregated engagement for each campaign
+7. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with uptick/downtick indicators
 
 ## Social Media Scraping
 The scraper attempts to extract engagement data from supported platforms:

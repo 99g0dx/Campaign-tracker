@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, desc, sql, asc } from "drizzle-orm";
+import { eq, desc, sql, asc, inArray } from "drizzle-orm";
 import {
   campaigns,
   socialLinks,
@@ -122,15 +122,14 @@ export class DatabaseStorage implements IStorage {
       return [];
     }
     
-    const allHistory = await db.select()
+    const history = await db.select()
       .from(engagementHistory)
+      .where(inArray(engagementHistory.socialLinkId, linkIds))
       .orderBy(asc(engagementHistory.recordedAt));
-    
-    const filteredHistory = allHistory.filter(h => linkIds.includes(h.socialLinkId));
     
     const groupedByDate = new Map<string, { views: number; likes: number; comments: number; shares: number; totalEngagement: number }>();
     
-    for (const record of filteredHistory) {
+    for (const record of history) {
       const date = record.recordedAt.toISOString().split('T')[0];
       const existing = groupedByDate.get(date) || { views: 0, likes: 0, comments: 0, shares: 0, totalEngagement: 0 };
       

@@ -41,6 +41,9 @@ import {
   Loader2,
   User,
   Link as LinkIcon,
+  TrendingUp,
+  TrendingDown,
+  BarChart3,
 } from "lucide-react";
 import {
   useCampaigns,
@@ -48,10 +51,21 @@ import {
   useAddSocialLink,
   useRescrapeSocialLink,
   useUpdateSocialLink,
+  useCampaignEngagementHistory,
   type SocialLink,
   type PostStatus,
 } from "@/hooks/useCampaigns";
 import { useToast } from "@/hooks/use-toast";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 
 const POST_STATUS_OPTIONS: { value: PostStatus; label: string; color: string }[] = [
   { value: "pending", label: "Pending", color: "bg-muted text-muted-foreground" },
@@ -310,11 +324,30 @@ export default function CampaignDetail() {
 
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
+  const { data: engagementHistory, isLoading: historyLoading } = useCampaignEngagementHistory(campaignId || 0);
   const { mutate: updateLink } = useUpdateSocialLink();
   const { mutate: rescrape, isPending: isRescraping } = useRescrapeSocialLink();
 
   const campaign = campaigns?.find((c) => c.id === campaignId);
   const campaignLinks = socialLinks?.filter((l) => l.campaignId === campaignId) || [];
+
+  const chartData = engagementHistory?.map((point) => ({
+    ...point,
+    date: new Date(point.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+  })) || [];
+
+  const hasChartData = chartData.length > 0;
+  
+  const getEngagementTrend = () => {
+    if (chartData.length < 2) return null;
+    const last = chartData[chartData.length - 1];
+    const prev = chartData[chartData.length - 2];
+    const diff = last.totalEngagement - prev.totalEngagement;
+    const pct = prev.totalEngagement > 0 ? ((diff / prev.totalEngagement) * 100).toFixed(1) : "0";
+    return { diff, pct, isUp: diff >= 0 };
+  };
+  
+  const trend = getEngagementTrend();
 
   const handleStatusChange = (linkId: number, newStatus: PostStatus) => {
     updateLink({ id: linkId, postStatus: newStatus });
@@ -463,6 +496,99 @@ export default function CampaignDetail() {
             </CardContent>
           </Card>
         </div>
+
+        <Card data-testid="card-engagement-chart">
+          <CardHeader className="flex flex-row items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <CardTitle>Engagement Trends</CardTitle>
+              {trend && (
+                <Badge variant={trend.isUp ? "default" : "destructive"} className="text-xs">
+                  {trend.isUp ? (
+                    <TrendingUp className="h-3 w-3 mr-1" />
+                  ) : (
+                    <TrendingDown className="h-3 w-3 mr-1" />
+                  )}
+                  {trend.isUp ? "+" : ""}{trend.pct}%
+                </Badge>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            {historyLoading ? (
+              <Skeleton className="h-[300px] w-full" />
+            ) : hasChartData ? (
+              <ResponsiveContainer width="100%" height={300}>
+                <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+                  <XAxis 
+                    dataKey="date" 
+                    className="text-xs fill-muted-foreground"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                  />
+                  <YAxis 
+                    className="text-xs fill-muted-foreground"
+                    tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                    tickFormatter={(value) => formatNumber(value)}
+                  />
+                  <Tooltip 
+                    contentStyle={{ 
+                      backgroundColor: 'hsl(var(--card))',
+                      borderColor: 'hsl(var(--border))',
+                      borderRadius: '8px',
+                    }}
+                    labelStyle={{ color: 'hsl(var(--foreground))' }}
+                    formatter={(value: number) => [formatNumber(value), '']}
+                  />
+                  <Legend />
+                  <Line 
+                    type="monotone" 
+                    dataKey="views" 
+                    stroke="hsl(var(--primary))" 
+                    strokeWidth={2}
+                    dot={{ fill: 'hsl(var(--primary))', strokeWidth: 0, r: 3 }}
+                    activeDot={{ r: 5 }}
+                    name="Views"
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="likes" 
+                    stroke="#f43f5e" 
+                    strokeWidth={2}
+                    dot={{ fill: '#f43f5e', strokeWidth: 0, r: 3 }}
+                    activeDot={{ r: 5 }}
+                    name="Likes"
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="comments" 
+                    stroke="#8b5cf6" 
+                    strokeWidth={2}
+                    dot={{ fill: '#8b5cf6', strokeWidth: 0, r: 3 }}
+                    activeDot={{ r: 5 }}
+                    name="Comments"
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="shares" 
+                    stroke="#22c55e" 
+                    strokeWidth={2}
+                    dot={{ fill: '#22c55e', strokeWidth: 0, r: 3 }}
+                    activeDot={{ r: 5 }}
+                    name="Shares"
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="flex flex-col items-center justify-center h-[300px] text-center">
+                <BarChart3 className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium mb-2">No engagement data yet</h3>
+                <p className="text-muted-foreground text-sm max-w-md">
+                  Engagement history will appear here as posts are scraped. Rescrape posts to start tracking trends.
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between gap-4">
