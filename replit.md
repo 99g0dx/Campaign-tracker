@@ -71,28 +71,30 @@ shared/
 8. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with uptick/downtick indicators
 
 ## Social Media Scraping
-The scraper attempts to extract engagement data from supported platforms:
+The scraper uses Apify API for reliable engagement data extraction:
 
 ### Platform Support Status
 | Platform | Status | Notes |
 |----------|--------|-------|
-| YouTube | Working | Views, likes, comments extracted from page |
-| TikTok | Limited | Anti-bot measures block most requests |
-| Instagram | Limited | Requires login, blocks automated access |
-| Twitter/X | Blocked | Paid API subscription required |
+| TikTok | Working | Apify clockworks/tiktok-scraper |
+| Instagram | Working | Apify apify/instagram-scraper |
+| YouTube | Working | Direct HTML parsing (views, likes, comments) |
+| Twitter/X | Limited | Syndication API (may require paid access) |
 | Facebook | Blocked | Authentication required |
 
 ### Technical Details
-- YouTube: Successfully extracts viewCount, likeCount from HTML
-- TikTok/Instagram/Twitter: These platforms use JavaScript rendering and anti-bot protection that blocks basic HTTP scraping
-- For reliable data from blocked platforms, consider:
-  - Manual data entry
-  - Third-party API services (Apify, RapidAPI, ScrapFly)
-  - Official platform APIs (requires developer accounts)
+- **TikTok**: Uses `clockworks~tiktok-scraper` Apify actor for reliable data extraction
+- **Instagram**: Uses `apify~instagram-scraper` Apify actor for posts and reels
+- **YouTube**: Direct HTML parsing extracts viewCount, likeCount from page
+- **Twitter/X**: Syndication API may work for some tweets
+- **Facebook**: Requires authentication, manual entry recommended
 
-Note: Posts will show "Error" status with a message explaining why scraping failed.
+### Configuration
+- `APIFY_API_TOKEN` - Required secret for TikTok/Instagram scraping
+- Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-11: Integrated Apify API for TikTok and Instagram scraping
 - 2025-12-11: Simplified app to focus on core campaign + social link tracking
 - 2025-12-11: Removed editing tasks and complex KPIs
 - 2025-12-11: New clean dashboard UI with campaign cards

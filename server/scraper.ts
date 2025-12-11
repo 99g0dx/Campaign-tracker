@@ -14,6 +14,8 @@ interface ScrapeResult {
   note?: string;
 }
 
+const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
+
 function detectPlatform(url: string): string | null {
   const urlLower = url.toLowerCase();
   if (urlLower.includes("tiktok.com")) return "TikTok";
@@ -83,96 +85,60 @@ function parseNumber(str: string): number {
   return isNaN(num) ? 0 : num;
 }
 
-async function scrapeTikTok(url: string, postId: string | null): Promise<ScrapeResult> {
+async function scrapeTikTokWithApify(url: string, postId: string | null): Promise<ScrapeResult> {
+  if (!APIFY_API_TOKEN) {
+    return {
+      success: false,
+      error: "Apify API token not configured. Please add APIFY_API_TOKEN to secrets.",
+    };
+  }
+
   try {
-    const response = await fetch(url, {
+    const actorId = "clockworks~tiktok-scraper";
+    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_TOKEN}`;
+    
+    const response = await fetch(apiUrl, {
+      method: "POST",
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Cache-Control": "no-cache",
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        postUrls: [url],
+        resultsPerPage: 1,
+        shouldDownloadCovers: false,
+        shouldDownloadVideos: false,
+        shouldDownloadSubtitles: false,
+      }),
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const errorText = await response.text();
+      console.error("Apify TikTok error:", response.status, errorText);
+      if (response.status === 402) {
+        return {
+          success: false,
+          error: "Apify credit limit reached. Please add more credits to your Apify account.",
+        };
+      }
+      throw new Error(`Apify API error: ${response.status}`);
     }
 
-    const html = await response.text();
+    const results = await response.json();
+    console.log("Apify TikTok response:", JSON.stringify(results[0], null, 2));
     
-    let views = 0, likes = 0, comments = 0, shares = 0;
-
-    const scriptMatch = html.match(/<script\s+id="__UNIVERSAL_DATA_FOR_REHYDRATION__"[^>]*>([\s\S]*?)<\/script>/i);
-    if (scriptMatch) {
-      try {
-        const jsonData = JSON.parse(scriptMatch[1]);
-        const defaultScope = jsonData?.__DEFAULT_SCOPE__;
-        const videoDetail = defaultScope?.["webapp.video-detail"]?.itemInfo?.itemStruct;
-        
-        if (videoDetail?.stats) {
-          views = videoDetail.stats.playCount || 0;
-          likes = videoDetail.stats.diggCount || 0;
-          comments = videoDetail.stats.commentCount || 0;
-          shares = videoDetail.stats.shareCount || 0;
-        }
-      } catch (e) {
-      }
-    }
-
-    if (views === 0 && likes === 0) {
-      const sigiMatch = html.match(/<script\s+id="SIGI_STATE"[^>]*>([\s\S]*?)<\/script>/i);
-      if (sigiMatch) {
-        try {
-          const sigiData = JSON.parse(sigiMatch[1]);
-          const itemModule = sigiData?.ItemModule;
-          if (itemModule) {
-            const videoKey = Object.keys(itemModule)[0];
-            if (videoKey && itemModule[videoKey]?.stats) {
-              const stats = itemModule[videoKey].stats;
-              views = stats.playCount || 0;
-              likes = stats.diggCount || 0;
-              comments = stats.commentCount || 0;
-              shares = stats.shareCount || 0;
-            }
-          }
-        } catch (e) {
-        }
-      }
-    }
-
-    if (views === 0 && likes === 0) {
-      const patterns = {
-        views: [/"playCount"\s*:\s*(\d+)/i, /"play_count"\s*:\s*(\d+)/i],
-        likes: [/"diggCount"\s*:\s*(\d+)/i, /"like_count"\s*:\s*(\d+)/i],
-        comments: [/"commentCount"\s*:\s*(\d+)/i, /"comment_count"\s*:\s*(\d+)/i],
-        shares: [/"shareCount"\s*:\s*(\d+)/i, /"share_count"\s*:\s*(\d+)/i],
-      };
-
-      for (const pattern of patterns.views) {
-        const match = html.match(pattern);
-        if (match) { views = parseInt(match[1], 10); break; }
-      }
-      for (const pattern of patterns.likes) {
-        const match = html.match(pattern);
-        if (match) { likes = parseInt(match[1], 10); break; }
-      }
-      for (const pattern of patterns.comments) {
-        const match = html.match(pattern);
-        if (match) { comments = parseInt(match[1], 10); break; }
-      }
-      for (const pattern of patterns.shares) {
-        const match = html.match(pattern);
-        if (match) { shares = parseInt(match[1], 10); break; }
-      }
-    }
-
-    if (views === 0 && likes === 0 && comments === 0 && shares === 0) {
+    if (!results || results.length === 0) {
       return {
         success: false,
-        error: "TikTok uses anti-bot protection. Engagement data requires API integration.",
-        note: "TikTok blocks automated scraping. Consider manual entry or API service.",
+        error: "No data returned from TikTok scraper. The post may be private or deleted.",
       };
     }
+
+    const video = results[0];
+    const stats = video.stats || video.videoMeta || {};
+    const views = stats.playCount || video.playCount || 0;
+    const likes = stats.diggCount || video.diggCount || 0;
+    const comments = stats.commentCount || video.commentCount || 0;
+    const shares = stats.shareCount || video.shareCount || 0;
 
     const totalEngagement = likes + comments + shares;
     const engagementRate = views > 0 ? (totalEngagement / views) * 100 : 0;
@@ -185,94 +151,70 @@ async function scrapeTikTok(url: string, postId: string | null): Promise<ScrapeR
         comments,
         shares,
         engagementRate: Math.round(engagementRate * 100) / 100,
-        postId: postId || undefined,
+        postId: postId || video.id || undefined,
       },
+      note: "Data scraped via Apify",
     };
   } catch (error) {
+    console.error("Apify TikTok scraping error:", error);
     return {
       success: false,
-      error: "TikTok scraping blocked. Platform requires API access for engagement data.",
+      error: error instanceof Error ? error.message : "Failed to scrape TikTok via Apify",
     };
   }
 }
 
-async function scrapeInstagram(url: string, postId: string | null): Promise<ScrapeResult> {
-  try {
-    const shortcode = postId;
-    if (!shortcode) {
-      throw new Error("Could not extract Instagram shortcode from URL");
-    }
+async function scrapeInstagramWithApify(url: string, postId: string | null): Promise<ScrapeResult> {
+  if (!APIFY_API_TOKEN) {
+    return {
+      success: false,
+      error: "Apify API token not configured. Please add APIFY_API_TOKEN to secrets.",
+    };
+  }
 
-    const response = await fetch(url, {
+  try {
+    const actorId = "apify~instagram-scraper";
+    const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_TOKEN}`;
+    
+    const response = await fetch(apiUrl, {
+      method: "POST",
       headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
+        "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        directUrls: [url],
+        resultsLimit: 1,
+        resultsType: "posts",
+        addParentData: false,
+      }),
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
+      const errorText = await response.text();
+      console.error("Apify Instagram error:", response.status, errorText);
+      if (response.status === 402) {
+        return {
+          success: false,
+          error: "Apify credit limit reached. Please add more credits to your Apify account.",
+        };
+      }
+      throw new Error(`Apify API error: ${response.status}`);
     }
 
-    const html = await response.text();
+    const results = await response.json();
     
-    let views = 0, likes = 0, comments = 0, shares = 0;
-
-    const sharedDataMatch = html.match(/window\._sharedData\s*=\s*(\{[\s\S]*?\});<\/script>/);
-    if (sharedDataMatch) {
-      try {
-        const sharedData = JSON.parse(sharedDataMatch[1]);
-        const media = sharedData?.entry_data?.PostPage?.[0]?.graphql?.shortcode_media;
-        if (media) {
-          views = media.video_view_count || 0;
-          likes = media.edge_media_preview_like?.count || 0;
-          comments = media.edge_media_to_parent_comment?.count || media.edge_media_preview_comment?.count || 0;
-        }
-      } catch (e) {
-      }
-    }
-
-    if (likes === 0) {
-      const patterns = {
-        views: [/"video_view_count"\s*:\s*(\d+)/i, /"play_count"\s*:\s*(\d+)/i],
-        likes: [/"like_count"\s*:\s*(\d+)/i, /"edge_media_preview_like"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i],
-        comments: [/"comment_count"\s*:\s*(\d+)/i, /"edge_media_preview_comment"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i],
-      };
-
-      for (const pattern of patterns.views) {
-        const match = html.match(pattern);
-        if (match) { views = parseNumber(match[1]); if (views > 0) break; }
-      }
-      for (const pattern of patterns.likes) {
-        const match = html.match(pattern);
-        if (match) { likes = parseNumber(match[1]); if (likes > 0) break; }
-      }
-      for (const pattern of patterns.comments) {
-        const match = html.match(pattern);
-        if (match) { comments = parseNumber(match[1]); if (comments > 0) break; }
-      }
-    }
-
-    const metaLikesMatch = html.match(/content="([\d,]+)\s+Likes/i);
-    if (metaLikesMatch && likes === 0) {
-      likes = parseNumber(metaLikesMatch[1]);
-    }
-    const metaCommentsMatch = html.match(/content="[\d,]+\s+Likes,\s+([\d,]+)\s+Comments/i);
-    if (metaCommentsMatch && comments === 0) {
-      comments = parseNumber(metaCommentsMatch[1]);
-    }
-
-    if (views === 0 && likes === 0 && comments === 0) {
+    if (!results || results.length === 0) {
       return {
         success: false,
-        error: "Instagram requires login for engagement data. Manual entry recommended.",
-        note: "Instagram blocks automated access. Consider API service or manual entry.",
+        error: "No data returned from Instagram scraper. The post may be private or deleted.",
       };
     }
+
+    const post = results[0];
+    const views = post.videoViewCount || post.videoPlayCount || 0;
+    const likes = post.likesCount || post.likes || 0;
+    const comments = post.commentsCount || post.comments || 0;
+    const shares = 0;
 
     const totalEngagement = likes + comments + shares;
     const engagementRate = views > 0 ? (totalEngagement / views) * 100 : (likes > 0 ? 100 : 0);
@@ -285,13 +227,15 @@ async function scrapeInstagram(url: string, postId: string | null): Promise<Scra
         comments,
         shares,
         engagementRate: Math.round(engagementRate * 100) / 100,
-        postId: shortcode || undefined,
+        postId: postId || post.shortCode || undefined,
       },
+      note: "Data scraped via Apify",
     };
   } catch (error) {
+    console.error("Apify Instagram scraping error:", error);
     return {
       success: false,
-      error: "Instagram scraping blocked. Platform requires authentication for data access.",
+      error: error instanceof Error ? error.message : "Failed to scrape Instagram via Apify",
     };
   }
 }
@@ -443,9 +387,9 @@ export async function scrapeSocialLink(url: string): Promise<ScrapeResult> {
   
   switch (platform) {
     case "TikTok":
-      return scrapeTikTok(url, postId);
+      return scrapeTikTokWithApify(url, postId);
     case "Instagram":
-      return scrapeInstagram(url, postId);
+      return scrapeInstagramWithApify(url, postId);
     case "Twitter":
       return scrapeTwitter(url, postId);
     case "YouTube":
