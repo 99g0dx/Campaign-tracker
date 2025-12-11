@@ -50,8 +50,11 @@ router.post("/start", async (req: any, res) => {
     await sendVerificationEmail(email, code);
 
     res.json({ ok: true });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Error starting verification:", error);
+    if (error.message === 'Email is already in use by another account') {
+      return res.status(409).json({ error: "This email is already registered to another account. Please use a different email." });
+    }
     res.status(500).json({ error: "Failed to start verification" });
   }
 });

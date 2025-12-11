@@ -52,21 +52,55 @@ export class DatabaseStorage implements IStorage {
   }
 
   async upsertUser(userData: UpsertUser): Promise<User> {
-    const [user] = await db
-      .insert(users)
-      .values(userData)
-      .onConflictDoUpdate({
-        target: users.id,
-        set: {
-          ...userData,
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
-    return user;
+    try {
+      // Atomic upsert using INSERT ... ON CONFLICT
+      // On conflict with id, update all fields except email to avoid unique constraint issues
+      const [user] = await db
+        .insert(users)
+        .values(userData)
+        .onConflictDoUpdate({
+          target: users.id,
+          set: {
+            firstName: userData.firstName,
+            lastName: userData.lastName,
+            profileImageUrl: userData.profileImageUrl,
+            updatedAt: new Date(),
+          },
+        })
+        .returning();
+      return user;
+    } catch (error: any) {
+      // Handle email unique constraint violation for new users
+      if (error.code === '23505' && error.constraint === 'users_email_key') {
+        // Insert without email for new user whose email is already taken
+        const [user] = await db
+          .insert(users)
+          .values({ ...userData, email: null })
+          .onConflictDoUpdate({
+            target: users.id,
+            set: {
+              firstName: userData.firstName,
+              lastName: userData.lastName,
+              profileImageUrl: userData.profileImageUrl,
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+        return user;
+      }
+      throw error;
+    }
   }
 
   async updateUserProfile(id: string, data: { firstName?: string; lastName?: string; phone?: string; email?: string; verificationCode?: string | null; verificationExpiresAt?: Date | null; isVerified?: boolean }): Promise<User | undefined> {
+    // If updating email, check if it's taken by another user
+    if (data.email) {
+      const [existingUser] = await db.select().from(users).where(eq(users.email, data.email));
+      if (existingUser && existingUser.id !== id) {
+        throw new Error('Email is already in use by another account');
+      }
+    }
+    
     const [user] = await db
       .update(users)
       .set({
