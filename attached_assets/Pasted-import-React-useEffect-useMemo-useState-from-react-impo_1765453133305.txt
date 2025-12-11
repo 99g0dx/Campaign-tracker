@@ -1,0 +1,1062 @@
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  initializeApp,
+  getApps,
+  getApp
+} from "firebase/app";
+import {
+  getFirestore,
+  collection,
+  onSnapshot,
+  getDocs,
+  addDoc,
+  query,
+  orderBy,
+  Timestamp
+} from "firebase/firestore";
+import {
+  getAuth,
+  onAuthStateChanged,
+  signInAnonymously
+} from "firebase/auth";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell
+} from "recharts";
+
+// 1. Firebase setup
+// Replace with your real Firebase config
+const firebaseConfig = {
+  apiKey: "YOUR_API_KEY",
+  authDomain: "YOUR_AUTH_DOMAIN",
+  projectId: "YOUR_PROJECT_ID",
+  storageBucket: "YOUR_STORAGE_BUCKET",
+  messagingSenderId: "YOUR_SENDER_ID",
+  appId: "YOUR_APP_ID"
+};
+
+const app = getApps().length ? getApp() : initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const auth = getAuth(app);
+
+const STATUS_COLORS = {
+  Approved: "#22c55e",
+  "In Review": "#eab308",
+  Editing: "#3b82f6",
+  Briefing: "#a855f7",
+  Blocked: "#ef4444"
+};
+
+const KPI_CARD_CLASS =
+  "flex flex-col gap-1 rounded-2xl border border-gray-800 bg-gradient-to-br from-gray-900 to-black p-4 shadow";
+
+const FIELD_BASE_CLASS =
+  "w-full rounded-xl border border-gray-700 bg-gray-900 px-3 py-2 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-indigo-500";
+
+const CampaignDashboard = () => {
+  const [user, setUser] = useState(null);
+  const [campaigns, setCampaigns] = useState([]);
+  const [editingTasks, setEditingTasks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
+
+  const [filterText, setFilterText] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [sortKey, setSortKey] = useState("createdAt");
+  const [sortDir, setSortDir] = useState("desc");
+
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [savingCampaign, setSavingCampaign] = useState(false);
+  const [newCampaign, setNewCampaign] = useState({
+    name: "",
+    channel: "TikTok",
+    status: "Active",
+    spend: "",
+    impressions: "",
+    clicks: "",
+    conversions: "",
+    revenue: "",
+    engagementRate: ""
+  });
+
+  // 2. Firebase auth (anonymous)
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, current => {
+      if (!current) {
+        signInAnonymously(auth).catch(console.error);
+      } else {
+        setUser(current);
+      }
+    });
+    return () => unsub();
+  }, []);
+
+  // 3. Seed collections if empty
+  const seedIfEmpty = async () => {
+    setSeeding(true);
+    try {
+      const campaignsSnap = await getDocs(collection(db, "campaigns"));
+      const tasksSnap = await getDocs(collection(db, "editingTasks"));
+
+      if (campaignsSnap.empty) {
+        const now = new Date();
+        const daysAgo = days => Timestamp.fromDate(new Date(now.getTime() - days * 86400000));
+
+        const sampleCampaigns = [
+          {
+            name: "Kah-Lo - Somersaults TikTok Push",
+            channel: "TikTok",
+            status: "Active",
+            spend: 500,
+            impressions: 120000,
+            clicks: 15000,
+            conversions: 1200,
+            revenue: 2200,
+            engagementRate: 0.14,
+            createdAt: daysAgo(6)
+          },
+          {
+            name: "Rema Fan Edit Challenge",
+            channel: "Instagram",
+            status: "Active",
+            spend: 800,
+            impressions: 200000,
+            clicks: 24000,
+            conversions: 1800,
+            revenue: 4100,
+            engagementRate: 0.18,
+            createdAt: daysAgo(4)
+          },
+          {
+            name: "Brand UGC Influencer Sprint",
+            channel: "YouTube",
+            status: "Completed",
+            spend: 1200,
+            impressions: 300000,
+            clicks: 35000,
+            conversions: 3000,
+            revenue: 6800,
+            engagementRate: 0.16,
+            createdAt: daysAgo(2)
+          }
+        ];
+
+        for (const c of sampleCampaigns) {
+          await addDoc(collection(db, "campaigns"), c);
+        }
+      }
+
+      if (tasksSnap.empty) {
+        const now = new Date();
+        const daysAhead = days =>
+          Timestamp.fromDate(new Date(now.getTime() + days * 86400000));
+
+        const sampleTasks = [
+          {
+            title: "Somersaults TikTok Edit v1",
+            campaignName: "Kah-Lo - Somersaults TikTok Push",
+            assignee: "Tomi",
+            status: "Editing",
+            dueDate: daysAhead(1),
+            createdAt: Timestamp.fromDate(now)
+          },
+          {
+            title: "Rema Challenge Overlay Pack",
+            campaignName: "Rema Fan Edit Challenge",
+            assignee: "Ada",
+            status: "In Review",
+            dueDate: daysAhead(2),
+            createdAt: Timestamp.fromDate(now)
+          },
+          {
+            title: "UGC Script Refine",
+            campaignName: "Brand UGC Influencer Sprint",
+            assignee: "Emeka",
+            status: "Approved",
+            dueDate: daysAhead(-1),
+            createdAt: Timestamp.fromDate(now)
+          },
+          {
+            title: "Instagram Reels Cutdown",
+            campaignName: "Rema Fan Edit Challenge",
+            assignee: "Daye",
+            status: "Briefing",
+            dueDate: daysAhead(3),
+            createdAt: Timestamp.fromDate(now)
+          },
+          {
+            title: "YouTube Thumbnail Concepts",
+            campaignName: "Brand UGC Influencer Sprint",
+            assignee: "Zee",
+            status: "Blocked",
+            dueDate: daysAhead(2),
+            createdAt: Timestamp.fromDate(now)
+          }
+        ];
+
+        for (const t of sampleTasks) {
+          await addDoc(collection(db, "editingTasks"), t);
+        }
+      }
+    } catch (err) {
+      console.error("Seeding error", err);
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  // 4. Real time listeners
+  useEffect(() => {
+    if (!user) return;
+
+    let unsubCampaigns;
+    let unsubTasks;
+    let mounted = true;
+
+    const init = async () => {
+      await seedIfEmpty();
+
+      if (!mounted) return;
+
+      const campaignsRef = collection(db, "campaigns");
+      const tasksRef = collection(db, "editingTasks");
+
+      unsubCampaigns = onSnapshot(
+        query(campaignsRef, orderBy("createdAt", "desc")),
+        snap => {
+          const docs = snap.docs.map(d => ({
+            id: d.id,
+            ...d.data()
+          }));
+          setCampaigns(docs);
+          setLoading(false);
+        },
+        err => {
+          console.error("Campaigns snapshot error", err);
+          setLoading(false);
+        }
+      );
+
+      unsubTasks = onSnapshot(
+        query(tasksRef, orderBy("dueDate", "asc")),
+        snap => {
+          const docs = snap.docs.map(d => ({
+            id: d.id,
+            ...d.data()
+          }));
+          setEditingTasks(docs);
+        },
+        err => console.error("Tasks snapshot error", err)
+      );
+    };
+
+    init();
+
+    return () => {
+      mounted = false;
+      if (unsubCampaigns) unsubCampaigns();
+      if (unsubTasks) unsubTasks();
+    };
+  }, [user]);
+
+  // 5. Derived analytics
+
+  const totals = useMemo(() => {
+    if (!campaigns.length) {
+      return {
+        spend: 0,
+        conversions: 0,
+        clicks: 0,
+        revenue: 0,
+        engagementRate: 0
+      };
+    }
+    const sum = campaigns.reduce(
+      (acc, c) => {
+        const spend = Number(c.spend || 0);
+        const conv = Number(c.conversions || 0);
+        const clicks = Number(c.clicks || 0);
+        const revenue = Number(c.revenue || 0);
+        const er = Number(c.engagementRate || 0);
+
+        acc.spend += spend;
+        acc.conversions += conv;
+        acc.clicks += clicks;
+        acc.revenue += revenue;
+        acc.engagementRate += er;
+        return acc;
+      },
+      {
+        spend: 0,
+        conversions: 0,
+        clicks: 0,
+        revenue: 0,
+        engagementRate: 0
+      }
+    );
+
+    return {
+      spend: sum.spend,
+      conversions: sum.conversions,
+      clicks: sum.clicks,
+      revenue: sum.revenue,
+      engagementRate: sum.engagementRate / campaigns.length
+    };
+  }, [campaigns]);
+
+  const kpis = useMemo(() => {
+    const { spend, conversions, revenue, engagementRate } = totals;
+    const roi = spend > 0 ? ((revenue - spend) / spend) * 100 : 0;
+    const cpa = conversions > 0 ? spend / conversions : 0;
+    const engagedUsers = Math.round(conversions * 1.8);
+
+    const approvedCount = editingTasks.filter(t => t.status === "Approved").length;
+    const completionRate =
+      editingTasks.length > 0
+        ? (approvedCount / editingTasks.length) * 100
+        : 0;
+
+    return {
+      roi,
+      cpa,
+      engagedUsers,
+      completionRate
+    };
+  }, [totals, editingTasks]);
+
+  const performanceTrendData = useMemo(() => {
+    if (!campaigns.length) return [];
+    const byDay = {};
+
+    campaigns.forEach(c => {
+      const ts = c.createdAt;
+      let dateKey = "Unknown";
+      if (ts && typeof ts.toDate === "function") {
+        const d = ts.toDate();
+        dateKey = d.toISOString().slice(0, 10);
+      }
+      if (!byDay[dateKey]) {
+        byDay[dateKey] = {
+          date: dateKey,
+          conversions: 0,
+          clicks: 0
+        };
+      }
+      byDay[dateKey].conversions += Number(c.conversions || 0);
+      byDay[dateKey].clicks += Number(c.clicks || 0);
+    });
+
+    return Object.values(byDay)
+      .sort((a, b) => (a.date > b.date ? 1 : -1))
+      .slice(-7);
+  }, [campaigns]);
+
+  const creativeStatusData = useMemo(() => {
+    if (!editingTasks.length) return [];
+    const buckets = {};
+    editingTasks.forEach(t => {
+      const status = t.status || "Unknown";
+      buckets[status] = (buckets[status] || 0) + 1;
+    });
+    return Object.entries(buckets).map(([name, value]) => ({
+      name,
+      value
+    }));
+  }, [editingTasks]);
+
+  const filteredCampaigns = useMemo(() => {
+    let result = [...campaigns];
+
+    if (filterText.trim()) {
+      const search = filterText.toLowerCase();
+      result = result.filter(c => {
+        const haystack = `${c.name || ""} ${c.channel || ""} ${c.status || ""}`.toLowerCase();
+        return haystack.includes(search);
+      });
+    }
+
+    if (statusFilter !== "All") {
+      result = result.filter(c => c.status === statusFilter);
+    }
+
+    result.sort((a, b) => {
+      let av = a[sortKey];
+      let bv = b[sortKey];
+
+      if (sortKey === "createdAt") {
+        const ad = av && typeof av.toDate === "function" ? av.toDate() : new Date(0);
+        const bd = bv && typeof bv.toDate === "function" ? bv.toDate() : new Date(0);
+        return sortDir === "asc" ? ad - bd : bd - ad;
+      }
+
+      if (typeof av === "string") av = av.toLowerCase();
+      if (typeof bv === "string") bv = bv.toLowerCase();
+
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+
+    return result;
+  }, [campaigns, filterText, statusFilter, sortKey, sortDir]);
+
+  const editingTasksWithFormattedDates = useMemo(
+    () =>
+      editingTasks.map(t => {
+        const due = t.dueDate && typeof t.dueDate.toDate === "function"
+          ? t.dueDate.toDate()
+          : null;
+        return {
+          ...t,
+          dueDateFormatted: due
+            ? due.toLocaleDateString(undefined, {
+                day: "2-digit",
+                month: "short",
+                year: "numeric"
+              })
+            : "No date"
+        };
+      }),
+    [editingTasks]
+  );
+
+  // 6. Modal logic
+
+  const openModal = () => {
+    setNewCampaign({
+      name: "",
+      channel: "TikTok",
+      status: "Active",
+      spend: "",
+      impressions: "",
+      clicks: "",
+      conversions: "",
+      revenue: "",
+      engagementRate: ""
+    });
+    setIsModalOpen(true);
+  };
+
+  const handleNewCampaignChange = e => {
+    const { name, value } = e.target;
+    setNewCampaign(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleSaveCampaign = async e => {
+    e.preventDefault();
+    if (!newCampaign.name.trim()) return;
+
+    setSavingCampaign(true);
+    try {
+      const payload = {
+        name: newCampaign.name.trim(),
+        channel: newCampaign.channel,
+        status: newCampaign.status,
+        spend: Number(newCampaign.spend || 0),
+        impressions: Number(newCampaign.impressions || 0),
+        clicks: Number(newCampaign.clicks || 0),
+        conversions: Number(newCampaign.conversions || 0),
+        revenue: Number(newCampaign.revenue || 0),
+        engagementRate: Number(newCampaign.engagementRate || 0),
+        createdAt: Timestamp.now()
+      };
+      await addDoc(collection(db, "campaigns"), payload);
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error("Save campaign error", err);
+    } finally {
+      setSavingCampaign(false);
+    }
+  };
+
+  const handleSortClick = key => {
+    if (sortKey === key) {
+      setSortDir(prev => (prev === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-black text-gray-200">
+        <div className="flex flex-col items-center gap-2">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-gray-700 border-t-indigo-500" />
+          <p className="text-sm text-gray-400">
+            Loading your campaign dashboard...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-b from-black via-gray-950 to-black px-4 py-6 text-gray-100">
+      <div className="mx-auto flex max-w-7xl flex-col gap-6">
+        {/* Header */}
+        <header className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight text-white">
+              Campaign Tracking Dashboard
+            </h1>
+            <p className="mt-1 text-sm text-gray-400">
+              Monitor ROI, CPA, engagement and creative production across all your
+              marketing and creator campaigns in one place.
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={openModal}
+              className="rounded-xl bg-indigo-500 px-4 py-2 text-sm font-medium text-white shadow hover:bg-indigo-400 active:bg-indigo-600"
+            >
+              + Add Campaign
+            </button>
+            <div className="rounded-full border border-gray-800 bg-gray-900 px-3 py-1 text-xs text-gray-400">
+              {seeding
+                ? "Seeding sample data..."
+                : `${campaigns.length} campaigns · ${editingTasks.length} tasks`}
+            </div>
+          </div>
+        </header>
+
+        {/* KPIs */}
+        <section className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className={KPI_CARD_CLASS}>
+            <span className="text-xs uppercase tracking-wide text-gray-400">
+              ROI
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-semibold text-green-400">
+                {kpis.roi.toFixed(1)}%
+              </span>
+              <span className="text-[11px] text-gray-500">
+                Return on total ad spend
+              </span>
+            </div>
+          </div>
+
+          <div className={KPI_CARD_CLASS}>
+            <span className="text-xs uppercase tracking-wide text-gray-400">
+              CPA
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-semibold text-sky-400">
+                ${kpis.cpa.toFixed(2)}
+              </span>
+              <span className="text-[11px] text-gray-500">
+                Cost per acquisition
+              </span>
+            </div>
+          </div>
+
+          <div className={KPI_CARD_CLASS}>
+            <span className="text-xs uppercase tracking-wide text-gray-400">
+              Engaged Users
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-semibold text-amber-400">
+                {kpis.engagedUsers.toLocaleString()}
+              </span>
+              <span className="text-[11px] text-gray-500">
+                Estimated engaged users
+              </span>
+            </div>
+          </div>
+
+          <div className={KPI_CARD_CLASS}>
+            <span className="text-xs uppercase tracking-wide text-gray-400">
+              Content Completion
+            </span>
+            <div className="flex items-baseline gap-2">
+              <span className="text-xl font-semibold text-emerald-400">
+                {kpis.completionRate.toFixed(1)}%
+              </span>
+              <span className="text-[11px] text-gray-500">
+                Approved editing tasks
+              </span>
+            </div>
+          </div>
+        </section>
+
+        {/* Charts row */}
+        <section className="grid gap-4 lg:grid-cols-3">
+          {/* Line chart */}
+          <div className="lg:col-span-2 rounded-2xl border border-gray-800 bg-gray-950/60 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-100">
+                  Performance Trend
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Conversions vs clicks over time based on campaign start dates.
+                </p>
+              </div>
+            </div>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={performanceTrendData}>
+                  <XAxis
+                    dataKey="date"
+                    tick={{ fill: "#9ca3af", fontSize: 12 }}
+                    axisLine={{ stroke: "#4b5563" }}
+                    tickLine={{ stroke: "#4b5563" }}
+                  />
+                  <YAxis
+                    tick={{ fill: "#9ca3af", fontSize: 12 }}
+                    axisLine={{ stroke: "#4b5563" }}
+                    tickLine={{ stroke: "#4b5563" }}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#020617",
+                      border: "1px solid #4b5563",
+                      borderRadius: "0.75rem",
+                      fontSize: 12
+                    }}
+                  />
+                  <Legend />
+                  <Line
+                    type="monotone"
+                    dataKey="conversions"
+                    name="Conversions"
+                    stroke="#22c55e"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="clicks"
+                    name="Clicks"
+                    stroke="#3b82f6"
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+
+          {/* Pie chart */}
+          <div className="rounded-2xl border border-gray-800 bg-gray-950/60 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-100">
+                  Creative Production Status
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Distribution of editing tasks across statuses.
+                </p>
+              </div>
+            </div>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={creativeStatusData}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius={50}
+                    outerRadius={80}
+                    paddingAngle={2}
+                    label
+                  >
+                    {creativeStatusData.map((entry, index) => (
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={
+                          STATUS_COLORS[entry.name] ||
+                          Object.values(STATUS_COLORS)[
+                            index % Object.values(STATUS_COLORS).length
+                          ]
+                        }
+                      />
+                    ))}
+                  </Pie>
+                  <Legend />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </section>
+
+        {/* Campaign table and editing tasks */}
+        <section className="grid gap-4 lg:grid-cols-3">
+          {/* Table */}
+          <div className="lg:col-span-2 rounded-2xl border border-gray-800 bg-gray-950/60 p-4">
+            <div className="mb-3 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-100">
+                  Campaigns
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Full breakdown of spend, CPA, ROI and engagement rate.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Search campaigns..."
+                  value={filterText}
+                  onChange={e => setFilterText(e.target.value)}
+                  className={FIELD_BASE_CLASS + " max-w-xs text-xs"}
+                />
+                <select
+                  value={statusFilter}
+                  onChange={e => setStatusFilter(e.target.value)}
+                  className={FIELD_BASE_CLASS + " max-w-[130px] text-xs"}
+                >
+                  <option value="All">All statuses</option>
+                  <option value="Active">Active</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Paused">Paused</option>
+                </select>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-left text-xs text-gray-300">
+                <thead>
+                  <tr className="border-b border-gray-800 bg-gray-900/60">
+                    {[
+                      ["name", "Campaign"],
+                      ["channel", "Channel"],
+                      ["status", "Status"],
+                      ["spend", "Spend ($)"],
+                      ["conversions", "Conv"],
+                      ["cpa", "CPA"],
+                      ["roi", "ROI %"],
+                      ["engagementRate", "Engagement %"]
+                    ].map(([key, label]) => (
+                      <th
+                        key={key}
+                        className="cursor-pointer px-3 py-2 font-medium"
+                        onClick={() =>
+                          handleSortClick(
+                            key === "cpa" || key === "roi" ? "createdAt" : key
+                          )
+                        }
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>{label}</span>
+                          {sortKey === key && (
+                            <span className="text-[10px] text-gray-500">
+                              {sortDir === "asc" ? "↑" : "↓"}
+                            </span>
+                          )}
+                        </div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredCampaigns.map(c => {
+                    const spend = Number(c.spend || 0);
+                    const conv = Number(c.conversions || 0);
+                    const rev = Number(c.revenue || 0);
+                    const er = Number(c.engagementRate || 0);
+                    const cpa = conv > 0 ? spend / conv : 0;
+                    const roi =
+                      spend > 0 ? ((rev - spend) / spend) * 100 : 0;
+
+                    return (
+                      <tr
+                        key={c.id}
+                        className="border-b border-gray-900/80 hover:bg-gray-900/60"
+                      >
+                        <td className="px-3 py-2 text-[11px] font-medium text-gray-100">
+                          {c.name}
+                        </td>
+                        <td className="px-3 py-2 text-[11px] text-gray-400">
+                          {c.channel}
+                        </td>
+                        <td className="px-3 py-2 text-[11px]">
+                          <span
+                            className={`inline-flex rounded-full px-2 py-0.5 text-[10px] ${
+                              c.status === "Active"
+                                ? "bg-emerald-500/10 text-emerald-400"
+                                : c.status === "Completed"
+                                ? "bg-sky-500/10 text-sky-400"
+                                : "bg-amber-500/10 text-amber-400"
+                            }`}
+                          >
+                            {c.status}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 text-[11px]">
+                          ${spend.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-[11px]">
+                          {conv.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-[11px]">
+                          ${cpa.toFixed(2)}
+                        </td>
+                        <td className="px-3 py-2 text-[11px]">
+                          {roi.toFixed(1)}%
+                        </td>
+                        <td className="px-3 py-2 text-[11px]">
+                          {(er * 100).toFixed(1)}%
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {filteredCampaigns.length === 0 && (
+                    <tr>
+                      <td
+                        colSpan={8}
+                        className="px-3 py-6 text-center text-xs text-gray-500"
+                      >
+                        No campaigns match your filters yet.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Editing tasks list */}
+          <div className="rounded-2xl border border-gray-800 bg-gray-950/60 p-4">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="text-sm font-semibold text-gray-100">
+                  Editing Tasks
+                </h2>
+                <p className="text-xs text-gray-500">
+                  Track creative assets, owners and deadlines.
+                </p>
+              </div>
+            </div>
+            <div className="flex max-h-[420px] flex-col gap-2 overflow-y-auto pr-1">
+              {editingTasksWithFormattedDates.map(t => (
+                <div
+                  key={t.id}
+                  className="flex flex-col gap-1 rounded-xl border border-gray-800 bg-gray-900/60 p-3"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <h3 className="text-[13px] font-semibold text-gray-100">
+                        {t.title}
+                      </h3>
+                      <p className="text-[11px] text-gray-400">
+                        {t.campaignName}
+                      </p>
+                    </div>
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[10px] text-gray-200"
+                      style={{
+                        backgroundColor:
+                          (STATUS_COLORS[t.status] || "#4b5563") + "33",
+                        color: STATUS_COLORS[t.status] || "#e5e7eb"
+                      }}
+                    >
+                      {t.status}
+                    </span>
+                  </div>
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-gray-400">
+                    <span>Assigned: {t.assignee}</span>
+                    <span>Due: {t.dueDateFormatted}</span>
+                  </div>
+                </div>
+              ))}
+              {editingTasksWithFormattedDates.length === 0 && (
+                <div className="rounded-xl border border-gray-800 bg-gray-900/60 p-4 text-center text-xs text-gray-500">
+                  No editing tasks yet. Once you add tasks in Firestore, they will
+                  appear here in real time.
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      {/* Add Campaign Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-2xl border border-gray-800 bg-gray-950 p-5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <h2 className="text-sm font-semibold text-gray-100">
+                Add New Campaign
+              </h2>
+              <button
+                type="button"
+                onClick={() => setIsModalOpen(false)}
+                className="text-xs text-gray-400 hover:text-gray-200"
+              >
+                Close
+              </button>
+            </div>
+            <form
+              onSubmit={handleSaveCampaign}
+              className="grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              <div className="md:col-span-2">
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Campaign Name
+                </label>
+                <input
+                  type="text"
+                  name="name"
+                  value={newCampaign.name}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Channel
+                </label>
+                <select
+                  name="channel"
+                  value={newCampaign.channel}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                >
+                  <option value="TikTok">TikTok</option>
+                  <option value="Instagram">Instagram</option>
+                  <option value="YouTube">YouTube</option>
+                  <option value="X / Twitter">X / Twitter</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Status
+                </label>
+                <select
+                  name="status"
+                  value={newCampaign.status}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                >
+                  <option value="Active">Active</option>
+                  <option value="Completed">Completed</option>
+                  <option value="Paused">Paused</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Spend ($)
+                </label>
+                <input
+                  type="number"
+                  name="spend"
+                  value={newCampaign.spend}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Impressions
+                </label>
+                <input
+                  type="number"
+                  name="impressions"
+                  value={newCampaign.impressions}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                  min="0"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Clicks
+                </label>
+                <input
+                  type="number"
+                  name="clicks"
+                  value={newCampaign.clicks}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                  min="0"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Conversions
+                </label>
+                <input
+                  type="number"
+                  name="conversions"
+                  value={newCampaign.conversions}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                  min="0"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Revenue ($)
+                </label>
+                <input
+                  type="number"
+                  name="revenue"
+                  value={newCampaign.revenue}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                  min="0"
+                  step="0.01"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-[11px] text-gray-400">
+                  Engagement Rate (0 - 1)
+                </label>
+                <input
+                  type="number"
+                  name="engagementRate"
+                  value={newCampaign.engagementRate}
+                  onChange={handleNewCampaignChange}
+                  className={FIELD_BASE_CLASS + " text-xs"}
+                  min="0"
+                  max="1"
+                  step="0.01"
+                />
+              </div>
+
+              <div className="mt-2 flex gap-2 md:col-span-2 md:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="rounded-xl border border-gray-700 px-3 py-2 text-xs text-gray-300 hover:bg-gray-800"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingCampaign}
+                  className="rounded-xl bg-indigo-500 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-400 disabled:opacity-60"
+                >
+                  {savingCampaign ? "Saving..." : "Save Campaign"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default CampaignDashboard;
