@@ -30,6 +30,8 @@ import {
   RefreshCw,
   ExternalLink,
   Loader2,
+  ArrowUpDown,
+  Filter,
 } from "lucide-react";
 import {
   useCampaigns,
@@ -380,14 +382,39 @@ function AddLinkModal({
   );
 }
 
+type SortOption = "name" | "engagement" | "status" | "views";
+type PlatformFilter = "all" | "tiktok" | "instagram" | "youtube" | "twitter" | "facebook";
+
 export default function Dashboard() {
   const [campaignModalOpen, setCampaignModalOpen] = useState(false);
   const [linkModalOpen, setLinkModalOpen] = useState(false);
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
+  const [sortBy, setSortBy] = useState<SortOption>("name");
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
 
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
   const { mutateAsync: addCampaign } = useAddCampaign();
+
+  const filteredAndSortedCampaigns = campaigns
+    ?.filter((campaign) => {
+      if (platformFilter === "all") return true;
+      const campaignLinks = socialLinks?.filter((l) => l.campaignId === campaign.id) || [];
+      return campaignLinks.some((l) => l.platform.toLowerCase() === platformFilter);
+    })
+    .sort((a, b) => {
+      switch (sortBy) {
+        case "engagement":
+          return b.totalEngagement - a.totalEngagement;
+        case "views":
+          return b.totalViews - a.totalViews;
+        case "status":
+          return a.status.localeCompare(b.status);
+        case "name":
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    });
 
   const handleAddLink = (campaignId: number) => {
     setSelectedCampaignId(campaignId);
@@ -477,15 +504,55 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-4">
-          <h2 className="text-lg font-semibold">Campaigns</h2>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="text-lg font-semibold">Campaigns</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2">
+                <Filter className="h-4 w-4 text-muted-foreground" />
+                <Select
+                  value={platformFilter}
+                  onValueChange={(v) => setPlatformFilter(v as PlatformFilter)}
+                >
+                  <SelectTrigger className="w-[130px]" data-testid="select-platform-filter">
+                    <SelectValue placeholder="Platform" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Platforms</SelectItem>
+                    <SelectItem value="tiktok">TikTok</SelectItem>
+                    <SelectItem value="instagram">Instagram</SelectItem>
+                    <SelectItem value="youtube">YouTube</SelectItem>
+                    <SelectItem value="twitter">X / Twitter</SelectItem>
+                    <SelectItem value="facebook">Facebook</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2">
+                <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                <Select
+                  value={sortBy}
+                  onValueChange={(v) => setSortBy(v as SortOption)}
+                >
+                  <SelectTrigger className="w-[140px]" data-testid="select-sort">
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="name">Name</SelectItem>
+                    <SelectItem value="views">Most Views</SelectItem>
+                    <SelectItem value="engagement">Most Engagement</SelectItem>
+                    <SelectItem value="status">Status</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
           {campaignsLoading || linksLoading ? (
             <div className="grid gap-4 md:grid-cols-2">
               <Skeleton className="h-64" />
               <Skeleton className="h-64" />
             </div>
-          ) : campaigns && campaigns.length > 0 ? (
+          ) : filteredAndSortedCampaigns && filteredAndSortedCampaigns.length > 0 ? (
             <div className="grid gap-4 md:grid-cols-2">
-              {campaigns.map((campaign) => (
+              {filteredAndSortedCampaigns.map((campaign) => (
                 <CampaignCard
                   key={campaign.id}
                   campaign={campaign}
@@ -494,6 +561,19 @@ export default function Dashboard() {
                 />
               ))}
             </div>
+          ) : campaigns && campaigns.length > 0 ? (
+            <Card>
+              <CardContent className="flex flex-col items-center justify-center py-12 text-center">
+                <Filter className="h-12 w-12 text-muted-foreground/50 mb-4" />
+                <h3 className="text-lg font-medium mb-2">No matching campaigns</h3>
+                <p className="text-muted-foreground mb-4">
+                  No campaigns have posts from the selected platform
+                </p>
+                <Button variant="outline" onClick={() => setPlatformFilter("all")}>
+                  Clear Filter
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12 text-center">
