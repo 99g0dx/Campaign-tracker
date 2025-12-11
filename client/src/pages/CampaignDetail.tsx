@@ -409,12 +409,24 @@ function EditLinkModal({
   );
 }
 
+type TimeRange = "24h" | "3d" | "7d" | "30d" | "60d" | "90d";
+
+const TIME_RANGE_OPTIONS: { value: TimeRange; label: string; days: number }[] = [
+  { value: "24h", label: "24hrs", days: 1 },
+  { value: "3d", label: "3 days", days: 3 },
+  { value: "7d", label: "7 days", days: 7 },
+  { value: "30d", label: "30 days", days: 30 },
+  { value: "60d", label: "60 days", days: 60 },
+  { value: "90d", label: "90 days", days: 90 },
+];
+
 export default function CampaignDetail() {
   const [, params] = useRoute("/campaign/:id");
   const campaignId = params?.id ? parseInt(params.id, 10) : null;
 
   const [addCreatorOpen, setAddCreatorOpen] = useState(false);
   const [editLink, setEditLink] = useState<SocialLink | null>(null);
+  const [timeRange, setTimeRange] = useState<TimeRange>("7d");
 
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
@@ -425,10 +437,16 @@ export default function CampaignDetail() {
   const campaign = campaigns?.find((c) => c.id === campaignId);
   const campaignLinks = socialLinks?.filter((l) => l.campaignId === campaignId) || [];
 
-  const chartData = engagementHistory?.map((point) => ({
-    ...point,
-    date: new Date(point.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-  })) || [];
+  const selectedRangeOption = TIME_RANGE_OPTIONS.find((o) => o.value === timeRange) || TIME_RANGE_OPTIONS[2];
+  const cutoffDate = new Date();
+  cutoffDate.setDate(cutoffDate.getDate() - selectedRangeOption.days);
+
+  const chartData = engagementHistory
+    ?.filter((point) => new Date(point.date) >= cutoffDate)
+    .map((point) => ({
+      ...point,
+      date: new Date(point.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+    })) || [];
 
   const hasChartData = chartData.length > 0;
   
@@ -592,7 +610,7 @@ export default function CampaignDetail() {
         </div>
 
         <Card data-testid="card-engagement-chart">
-          <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <CardTitle>Engagement Trends</CardTitle>
               {trend && (
@@ -605,6 +623,19 @@ export default function CampaignDetail() {
                   {trend.isUp ? "+" : ""}{trend.pct}%
                 </Badge>
               )}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {TIME_RANGE_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  size="sm"
+                  variant={timeRange === option.value ? "default" : "outline"}
+                  onClick={() => setTimeRange(option.value)}
+                  data-testid={`button-range-${option.value}`}
+                >
+                  {option.label}
+                </Button>
+              ))}
             </div>
           </CardHeader>
           <CardContent>
