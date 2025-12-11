@@ -20,14 +20,19 @@ client/
       AddCampaignModal.tsx  # Create new campaign
     hooks/
       useCampaigns.ts # React Query hooks
+      useAuth.ts      # Authentication hook
     pages/
       Dashboard.tsx     # Main dashboard with campaign cards
       CampaignDetail.tsx # Individual campaign page with creators table
+      Onboarding.tsx    # KYC verification page
+      Landing.tsx       # Landing page for unauthenticated users
 server/
   db.ts             # Database connection
   storage.ts        # Data access layer
   routes.ts         # API endpoints
   scraper.ts        # Social media engagement scraper
+  replitAuth.ts     # Replit Auth OIDC setup
+  profileRoutes.ts  # KYC verification endpoints
 shared/
   schema.ts         # Drizzle schema definitions
 ```
@@ -53,7 +58,20 @@ shared/
 - `status` - Scraping status: pending/scraping/scraped/error
 - `lastScrapedAt` - When data was last scraped
 
+### users
+- `id` - Primary key (Replit user ID from OIDC sub claim)
+- `email` - User email (unique)
+- `firstName`, `lastName` - User name
+- `phone` - Phone number (for KYC)
+- `profileImageUrl` - Avatar URL from Replit
+- `isVerified` - KYC verification status (boolean)
+- `verificationCode` - 6-digit verification code
+- `verificationExpiresAt` - Code expiration timestamp
+- `createdAt`, `updatedAt` - Timestamps
+
 ## API Endpoints
+
+### Campaign Endpoints
 - `GET /api/campaigns` - Get all campaigns with aggregated stats
 - `POST /api/campaigns` - Create new campaign
 - `GET /api/social-links` - Get all social links
@@ -61,16 +79,22 @@ shared/
 - `PATCH /api/social-links/:id` - Update post status, creator name, URL, and engagement metrics (views, likes, comments, shares)
 - `POST /api/social-links/:id/rescrape` - Rescrape engagement data
 
+### Profile/KYC Endpoints
+- `POST /api/profile/start` - Start verification (body: firstName, lastName, email, phone) - sends 6-digit code
+- `POST /api/profile/verify` - Verify code (body: code) - marks user as verified
+- `POST /api/profile/resend` - Resend verification code
+
 ## Features
 1. **User Authentication** - Log in with Replit Auth (Google, GitHub, or email)
-2. **Create Campaigns** - Name + Song title + Artist
-3. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs with optional creator name
-4. **Post Status Tracking** - Track workflow status per post: Pending, Briefed, Active, Done
-5. **Track Engagement** - Automatic scraping of views, likes, comments, shares
-6. **Edit Creators & Posts** - Click pencil icon to edit creator name, URL, and manually enter/correct engagement metrics
-7. **Dashboard** - Overview of total views, engagement, posts, and active campaigns with user avatar and logout
-8. **Per-Campaign Stats** - See aggregated engagement for each campaign
-9. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with time range filters (24hrs to 90 days)
+2. **KYC Verification** - Email verification required before accessing campaigns
+3. **Create Campaigns** - Name + Song title + Artist
+4. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs with optional creator name
+5. **Post Status Tracking** - Track workflow status per post: Pending, Briefed, Active, Done
+6. **Track Engagement** - Automatic scraping of views, likes, comments, shares
+7. **Edit Creators & Posts** - Click pencil icon to edit creator name, URL, and manually enter/correct engagement metrics
+8. **Dashboard** - Overview of total views, engagement, posts, and active campaigns with user avatar and logout
+9. **Per-Campaign Stats** - See aggregated engagement for each campaign
+10. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with time range filters (24hrs to 90 days)
 
 ## Social Media Scraping
 The scraper uses Apify API for reliable engagement data extraction:
@@ -96,6 +120,8 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-11: Added KYC verification flow - users must verify email before accessing campaigns
+- 2025-12-11: Added Onboarding page with profile form and email verification
 - 2025-12-11: Added Replit Auth authentication with user avatar and logout in dashboard header
 - 2025-12-11: Added time range filters to engagement charts (24hrs to 90 days)
 - 2025-12-11: Integrated Apify API for TikTok and Instagram scraping
