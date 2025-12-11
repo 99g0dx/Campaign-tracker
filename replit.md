@@ -71,13 +71,25 @@ shared/
 
 ## Social Media Scraping
 The scraper attempts to extract engagement data from supported platforms:
-- TikTok
-- Instagram
-- YouTube
-- Twitter/X
-- Facebook
 
-Note: Some platforms block scraping. Links will show "Error" status if scraping fails.
+### Platform Support Status
+| Platform | Status | Notes |
+|----------|--------|-------|
+| YouTube | Working | Views, likes, comments extracted from page |
+| TikTok | Limited | Anti-bot measures block most requests |
+| Instagram | Limited | Requires login, blocks automated access |
+| Twitter/X | Blocked | Paid API subscription required |
+| Facebook | Blocked | Authentication required |
+
+### Technical Details
+- YouTube: Successfully extracts viewCount, likeCount from HTML
+- TikTok/Instagram/Twitter: These platforms use JavaScript rendering and anti-bot protection that blocks basic HTTP scraping
+- For reliable data from blocked platforms, consider:
+  - Manual data entry
+  - Third-party API services (Apify, RapidAPI, ScrapFly)
+  - Official platform APIs (requires developer accounts)
+
+Note: Posts will show "Error" status with a message explaining why scraping failed.
 
 ## Recent Changes
 - 2025-12-11: Simplified app to focus on core campaign + social link tracking

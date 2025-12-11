@@ -11,6 +11,7 @@ interface ScrapeResult {
   success: boolean;
   data?: ScrapedData;
   error?: string;
+  note?: string;
 }
 
 function detectPlatform(url: string): string | null {
@@ -165,6 +166,14 @@ async function scrapeTikTok(url: string, postId: string | null): Promise<ScrapeR
       }
     }
 
+    if (views === 0 && likes === 0 && comments === 0 && shares === 0) {
+      return {
+        success: false,
+        error: "TikTok uses anti-bot protection. Engagement data requires API integration.",
+        note: "TikTok blocks automated scraping. Consider manual entry or API service.",
+      };
+    }
+
     const totalEngagement = likes + comments + shares;
     const engagementRate = views > 0 ? (totalEngagement / views) * 100 : 0;
 
@@ -182,7 +191,7 @@ async function scrapeTikTok(url: string, postId: string | null): Promise<ScrapeR
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to scrape TikTok",
+      error: "TikTok scraping blocked. Platform requires API access for engagement data.",
     };
   }
 }
@@ -228,26 +237,10 @@ async function scrapeInstagram(url: string, postId: string | null): Promise<Scra
     }
 
     if (likes === 0) {
-      const additionalDataMatch = html.match(/<script[^>]*>window\.__additionalDataLoaded\([^,]+,\s*(\{[\s\S]*?\})\s*\);<\/script>/);
-      if (additionalDataMatch) {
-        try {
-          const additionalData = JSON.parse(additionalDataMatch[1]);
-          const media = additionalData?.graphql?.shortcode_media || additionalData?.items?.[0];
-          if (media) {
-            views = media.video_view_count || media.play_count || 0;
-            likes = media.edge_media_preview_like?.count || media.like_count || 0;
-            comments = media.edge_media_to_parent_comment?.count || media.comment_count || 0;
-          }
-        } catch (e) {
-        }
-      }
-    }
-
-    if (likes === 0) {
       const patterns = {
-        views: [/"video_view_count"\s*:\s*(\d+)/i, /"play_count"\s*:\s*(\d+)/i, /(\d[\d,\.]*[KMB]?)\s*(?:views|plays)/i],
-        likes: [/"like_count"\s*:\s*(\d+)/i, /"edge_media_preview_like"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i, /(\d[\d,\.]*[KMB]?)\s*likes/i],
-        comments: [/"comment_count"\s*:\s*(\d+)/i, /"edge_media_preview_comment"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i, /(\d[\d,\.]*[KMB]?)\s*comments/i],
+        views: [/"video_view_count"\s*:\s*(\d+)/i, /"play_count"\s*:\s*(\d+)/i],
+        likes: [/"like_count"\s*:\s*(\d+)/i, /"edge_media_preview_like"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i],
+        comments: [/"comment_count"\s*:\s*(\d+)/i, /"edge_media_preview_comment"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i],
       };
 
       for (const pattern of patterns.views) {
@@ -273,6 +266,14 @@ async function scrapeInstagram(url: string, postId: string | null): Promise<Scra
       comments = parseNumber(metaCommentsMatch[1]);
     }
 
+    if (views === 0 && likes === 0 && comments === 0) {
+      return {
+        success: false,
+        error: "Instagram requires login for engagement data. Manual entry recommended.",
+        note: "Instagram blocks automated access. Consider API service or manual entry.",
+      };
+    }
+
     const totalEngagement = likes + comments + shares;
     const engagementRate = views > 0 ? (totalEngagement / views) * 100 : (likes > 0 ? 100 : 0);
 
@@ -290,7 +291,7 @@ async function scrapeInstagram(url: string, postId: string | null): Promise<Scra
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to scrape Instagram",
+      error: "Instagram scraping blocked. Platform requires authentication for data access.",
     };
   }
 }
@@ -301,98 +302,57 @@ async function scrapeTwitter(url: string, postId: string | null): Promise<Scrape
       throw new Error("Could not extract tweet ID from URL");
     }
 
-    const syndicationUrl = `https://cdn.syndication.twimg.com/tweet-result?id=${postId}&token=0`;
+    const syndicationUrl = `https://cdn.syndication.twimg.com/tweet-result?id=${postId}&lang=en&token=0`;
     
     const response = await fetch(syndicationUrl, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "application/json",
+        "Accept": "*/*",
         "Referer": "https://platform.twitter.com/",
+        "Origin": "https://platform.twitter.com",
       },
     });
 
-    if (!response.ok) {
-      const htmlResponse = await fetch(url, {
-        headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        },
-      });
-      
-      const html = await htmlResponse.text();
-      return scrapeTwitterFromHtml(html, postId);
+    if (response.ok) {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        const data = await response.json();
+        
+        const likes = data.favorite_count || 0;
+        const comments = data.reply_count || data.conversation_count || 0;
+        const shares = data.retweet_count || 0;
+        const views = data.views_count || data.view_count || 0;
+
+        if (likes > 0 || comments > 0 || shares > 0 || views > 0) {
+          const totalEngagement = likes + comments + shares;
+          const engagementRate = views > 0 ? (totalEngagement / views) * 100 : 0;
+
+          return {
+            success: true,
+            data: {
+              views,
+              likes,
+              comments,
+              shares,
+              engagementRate: Math.round(engagementRate * 100) / 100,
+              postId,
+            },
+          };
+        }
+      }
     }
 
-    const data = await response.json();
-    
-    const likes = data.favorite_count || 0;
-    const comments = data.reply_count || data.conversation_count || 0;
-    const shares = data.retweet_count || 0;
-    const views = data.views_count || data.view_count || 0;
-
-    const totalEngagement = likes + comments + shares;
-    const engagementRate = views > 0 ? (totalEngagement / views) * 100 : 0;
-
     return {
-      success: true,
-      data: {
-        views,
-        likes,
-        comments,
-        shares,
-        engagementRate: Math.round(engagementRate * 100) / 100,
-        postId,
-      },
+      success: false,
+      error: "X/Twitter API access restricted. Engagement data requires API subscription.",
+      note: "X now requires paid API access for tweet metrics.",
     };
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : "Failed to scrape Twitter",
+      error: "X/Twitter scraping unavailable. Platform requires paid API access.",
     };
   }
-}
-
-function scrapeTwitterFromHtml(html: string, postId: string | null): ScrapeResult {
-  let views = 0, likes = 0, comments = 0, shares = 0;
-
-  const patterns = {
-    views: [/"viewCount"\s*:\s*"?(\d+)"?/i, /(\d[\d,\.]*[KMB]?)\s*(?:views|impressions)/i],
-    likes: [/"favorite_count"\s*:\s*(\d+)/i, /"likeCount"\s*:\s*"?(\d+)"?/i, /(\d[\d,\.]*[KMB]?)\s*(?:likes?|hearts?)/i],
-    comments: [/"reply_count"\s*:\s*(\d+)/i, /"replyCount"\s*:\s*"?(\d+)"?/i, /(\d[\d,\.]*[KMB]?)\s*(?:replies|comments)/i],
-    shares: [/"retweet_count"\s*:\s*(\d+)/i, /"retweetCount"\s*:\s*"?(\d+)"?/i, /(\d[\d,\.]*[KMB]?)\s*(?:retweets?|reposts?)/i],
-  };
-
-  for (const pattern of patterns.views) {
-    const match = html.match(pattern);
-    if (match) { views = parseNumber(match[1]); if (views > 0) break; }
-  }
-  for (const pattern of patterns.likes) {
-    const match = html.match(pattern);
-    if (match) { likes = parseNumber(match[1]); if (likes > 0) break; }
-  }
-  for (const pattern of patterns.comments) {
-    const match = html.match(pattern);
-    if (match) { comments = parseNumber(match[1]); if (comments > 0) break; }
-  }
-  for (const pattern of patterns.shares) {
-    const match = html.match(pattern);
-    if (match) { shares = parseNumber(match[1]); if (shares > 0) break; }
-  }
-
-  const totalEngagement = likes + comments + shares;
-  const engagementRate = views > 0 ? (totalEngagement / views) * 100 : 0;
-
-  return {
-    success: true,
-    data: {
-      views,
-      likes,
-      comments,
-      shares,
-      engagementRate: Math.round(engagementRate * 100) / 100,
-      postId: postId || undefined,
-    },
-  };
 }
 
 async function scrapeYouTube(url: string, postId: string | null): Promise<ScrapeResult> {
@@ -416,12 +376,18 @@ async function scrapeYouTube(url: string, postId: string | null): Promise<Scrape
     const viewMatch = html.match(/"viewCount"\s*:\s*"(\d+)"/);
     if (viewMatch) views = parseInt(viewMatch[1], 10);
 
-    const likeMatch = html.match(/"likeCount"\s*:\s*"?(\d+)"?/);
-    if (likeMatch) likes = parseInt(likeMatch[1], 10);
-
-    if (likes === 0) {
-      const accessibilityMatch = html.match(/like this video along with ([\d,]+) other people/i);
-      if (accessibilityMatch) likes = parseNumber(accessibilityMatch[1]);
+    const likePatterns = [
+      /"likeCount"\s*:\s*"?(\d+)"?/,
+      /like this video along with ([\d,]+) other people/i,
+      /"likes"\s*:\s*\{\s*"simpleText"\s*:\s*"([\d,KMB]+)"/i,
+    ];
+    
+    for (const pattern of likePatterns) {
+      const match = html.match(pattern);
+      if (match) { 
+        likes = parseNumber(match[1]); 
+        if (likes > 0) break; 
+      }
     }
 
     const commentMatch = html.match(/"commentCount"\s*:\s*"?(\d+)"?/);
@@ -445,6 +411,7 @@ async function scrapeYouTube(url: string, postId: string | null): Promise<Scrape
         engagementRate: Math.round(engagementRate * 100) / 100,
         postId: postId || undefined,
       },
+      note: views > 0 ? undefined : "Some metrics may be limited without API access",
     };
   } catch (error) {
     return {
@@ -455,67 +422,11 @@ async function scrapeYouTube(url: string, postId: string | null): Promise<Scrape
 }
 
 async function scrapeFacebook(url: string, postId: string | null): Promise<ScrapeResult> {
-  try {
-    const response = await fetch(url, {
-      headers: {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const html = await response.text();
-    
-    let views = 0, likes = 0, comments = 0, shares = 0;
-
-    const patterns = {
-      views: [/"video_view_count"\s*:\s*(\d+)/i, /(\d[\d,\.]*[KMB]?)\s*(?:views|plays)/i],
-      likes: [/"reaction_count"\s*:\s*\{\s*"count"\s*:\s*(\d+)/i, /"like_count"\s*:\s*(\d+)/i, /(\d[\d,\.]*[KMB]?)\s*(?:likes?|reactions?)/i],
-      comments: [/"comment_count"\s*:\s*(\d+)/i, /(\d[\d,\.]*[KMB]?)\s*comments?/i],
-      shares: [/"share_count"\s*:\s*(\d+)/i, /(\d[\d,\.]*[KMB]?)\s*shares?/i],
-    };
-
-    for (const pattern of patterns.views) {
-      const match = html.match(pattern);
-      if (match) { views = parseNumber(match[1]); if (views > 0) break; }
-    }
-    for (const pattern of patterns.likes) {
-      const match = html.match(pattern);
-      if (match) { likes = parseNumber(match[1]); if (likes > 0) break; }
-    }
-    for (const pattern of patterns.comments) {
-      const match = html.match(pattern);
-      if (match) { comments = parseNumber(match[1]); if (comments > 0) break; }
-    }
-    for (const pattern of patterns.shares) {
-      const match = html.match(pattern);
-      if (match) { shares = parseNumber(match[1]); if (shares > 0) break; }
-    }
-
-    const totalEngagement = likes + comments + shares;
-    const engagementRate = views > 0 ? (totalEngagement / views) * 100 : 0;
-
-    return {
-      success: true,
-      data: {
-        views,
-        likes,
-        comments,
-        shares,
-        engagementRate: Math.round(engagementRate * 100) / 100,
-        postId: postId || undefined,
-      },
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : "Failed to scrape Facebook",
-    };
-  }
+  return {
+    success: false,
+    error: "Facebook requires authentication for engagement data.",
+    note: "Facebook blocks automated access. Manual entry or API integration required.",
+  };
 }
 
 export async function scrapeSocialLink(url: string): Promise<ScrapeResult> {
