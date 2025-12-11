@@ -1,114 +1,27 @@
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, BarChart3, TrendingUp, Users, Target, CheckCircle, DollarSign } from "lucide-react";
+import { Card } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Plus,
+  BarChart3,
+  Users,
+  Target,
+  CheckCircle,
+  DollarSign,
+  AlertCircle,
+} from "lucide-react";
 import KPICard from "@/components/KPICard";
 import PerformanceChart from "@/components/PerformanceChart";
 import CreativeStatusChart from "@/components/CreativeStatusChart";
 import CampaignTable, { type Campaign } from "@/components/CampaignTable";
 import EditingTaskCard, { type EditingTask } from "@/components/EditingTaskCard";
 import AddCampaignModal, { type NewCampaignData } from "@/components/AddCampaignModal";
+import { useFirebase } from "@/hooks/useFirebase";
+import { useToast } from "@/hooks/use-toast";
 
-// todo: remove mock functionality - this data will come from Firebase
-const initialCampaigns: Campaign[] = [
-  {
-    id: "1",
-    name: "Kah-Lo - Somersaults TikTok Push",
-    channel: "TikTok",
-    status: "Active",
-    spend: 500,
-    impressions: 120000,
-    clicks: 15000,
-    conversions: 1200,
-    cpa: 0.42,
-    roi: 340,
-    engagementRate: 14.0,
-  },
-  {
-    id: "2",
-    name: "Rema Fan Edit Challenge",
-    channel: "Instagram",
-    status: "Active",
-    spend: 800,
-    impressions: 200000,
-    clicks: 24000,
-    conversions: 1800,
-    cpa: 0.44,
-    roi: 412.5,
-    engagementRate: 18.0,
-  },
-  {
-    id: "3",
-    name: "Brand UGC Influencer Sprint",
-    channel: "YouTube",
-    status: "Completed",
-    spend: 1200,
-    impressions: 300000,
-    clicks: 35000,
-    conversions: 3000,
-    cpa: 0.40,
-    roi: 466.7,
-    engagementRate: 16.0,
-  },
-  {
-    id: "4",
-    name: "Holiday Season Push",
-    channel: "TikTok",
-    status: "Paused",
-    spend: 350,
-    impressions: 80000,
-    clicks: 8500,
-    conversions: 650,
-    cpa: 0.54,
-    roi: 185.7,
-    engagementRate: 10.6,
-  },
-];
-
-// todo: remove mock functionality
-const editingTasks: EditingTask[] = [
-  {
-    id: "1",
-    title: "Somersaults TikTok Edit v1",
-    campaignName: "Kah-Lo - Somersaults TikTok Push",
-    assignee: "Tomi",
-    status: "Editing",
-    dueDate: "Dec 12, 2025",
-  },
-  {
-    id: "2",
-    title: "Rema Challenge Overlay Pack",
-    campaignName: "Rema Fan Edit Challenge",
-    assignee: "Ada",
-    status: "In Review",
-    dueDate: "Dec 13, 2025",
-  },
-  {
-    id: "3",
-    title: "UGC Script Refine",
-    campaignName: "Brand UGC Influencer Sprint",
-    assignee: "Emeka",
-    status: "Approved",
-    dueDate: "Dec 10, 2025",
-  },
-  {
-    id: "4",
-    title: "Instagram Reels Cutdown",
-    campaignName: "Rema Fan Edit Challenge",
-    assignee: "Daye",
-    status: "Briefing",
-    dueDate: "Dec 14, 2025",
-  },
-  {
-    id: "5",
-    title: "YouTube Thumbnail Concepts",
-    campaignName: "Brand UGC Influencer Sprint",
-    assignee: "Zee",
-    status: "Blocked",
-    dueDate: "Dec 13, 2025",
-  },
-];
-
-// todo: remove mock functionality
+// Mock performance data (would come from aggregated campaign data in production)
+// todo: replace with real aggregated data from Firebase
 const performanceData = [
   { date: "Dec 5", conversions: 800, clicks: 12000 },
   { date: "Dec 6", conversions: 1200, clicks: 15000 },
@@ -119,22 +32,99 @@ const performanceData = [
   { date: "Dec 11", conversions: 6000, clicks: 50000 },
 ];
 
+function LoadingSkeleton() {
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-6">
+          <div className="flex items-center gap-3">
+            <BarChart3 className="h-6 w-6 text-primary" />
+            <h1 className="text-xl font-semibold">Campaign Tracker</h1>
+          </div>
+          <Skeleton className="h-9 w-32" />
+        </div>
+      </header>
+      <main className="mx-auto max-w-screen-2xl space-y-8 px-6 py-8">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+          {[...Array(4)].map((_, i) => (
+            <Card key={i} className="p-6">
+              <Skeleton className="mb-2 h-4 w-24" />
+              <Skeleton className="mb-2 h-10 w-32" />
+              <Skeleton className="h-4 w-20" />
+            </Card>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <Card className="p-6">
+            <Skeleton className="mb-4 h-6 w-40" />
+            <Skeleton className="h-80 w-full" />
+          </Card>
+          <Card className="p-6">
+            <Skeleton className="mb-4 h-6 w-40" />
+            <Skeleton className="h-80 w-full" />
+          </Card>
+        </div>
+      </main>
+    </div>
+  );
+}
+
+function ConfigurationPrompt() {
+  return (
+    <div className="min-h-screen bg-background">
+      <header className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur">
+        <div className="mx-auto flex h-16 max-w-screen-2xl items-center justify-between gap-4 px-6">
+          <div className="flex items-center gap-3">
+            <BarChart3 className="h-6 w-6 text-primary" />
+            <h1 className="text-xl font-semibold">Campaign Tracker</h1>
+          </div>
+        </div>
+      </header>
+      <main className="mx-auto max-w-screen-2xl px-6 py-16">
+        <Card className="mx-auto max-w-xl p-8">
+          <div className="flex flex-col items-center gap-6 text-center">
+            <div className="rounded-full bg-yellow-500/10 p-4">
+              <AlertCircle className="h-8 w-8 text-yellow-500" />
+            </div>
+            <div className="space-y-2">
+              <h2 className="text-xl font-semibold">Firebase Configuration Required</h2>
+              <p className="text-muted-foreground">
+                To use the Campaign Tracker, you need to configure Firebase with your project
+                credentials. Please add the following environment variables:
+              </p>
+            </div>
+            <div className="w-full space-y-2 rounded-lg bg-muted p-4 text-left font-mono text-sm">
+              <p>VITE_FIREBASE_API_KEY</p>
+              <p>VITE_FIREBASE_PROJECT_ID</p>
+              <p>VITE_FIREBASE_APP_ID</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Get these values from your Firebase Console under Project Settings.
+            </p>
+          </div>
+        </Card>
+      </main>
+    </div>
+  );
+}
+
 export default function Dashboard() {
-  const [campaigns, setCampaigns] = useState<Campaign[]>(initialCampaigns);
+  const { campaigns, editingTasks, loading, error, isConfigured, addCampaign } = useFirebase();
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const { toast } = useToast();
 
   // Calculate KPIs from campaign data
   const kpis = useMemo(() => {
+    if (campaigns.length === 0) {
+      return { roi: 0, cpa: 0, engagedUsers: 0, completionRate: 0 };
+    }
+
     const totalSpend = campaigns.reduce((sum, c) => sum + c.spend, 0);
     const totalRevenue = campaigns.reduce((sum, c) => {
       const revenue = c.spend * (1 + c.roi / 100);
       return sum + revenue;
     }, 0);
     const totalConversions = campaigns.reduce((sum, c) => sum + c.conversions, 0);
-    const avgEngagement =
-      campaigns.length > 0
-        ? campaigns.reduce((sum, c) => sum + c.engagementRate, 0) / campaigns.length
-        : 0;
 
     const roi = totalSpend > 0 ? ((totalRevenue - totalSpend) / totalSpend) * 100 : 0;
     const cpa = totalConversions > 0 ? totalSpend / totalConversions : 0;
@@ -144,35 +134,35 @@ export default function Dashboard() {
     const completionRate =
       editingTasks.length > 0 ? (approvedTasks / editingTasks.length) * 100 : 0;
 
-    return { roi, cpa, engagedUsers, completionRate, avgEngagement };
-  }, [campaigns]);
+    return { roi, cpa, engagedUsers, completionRate };
+  }, [campaigns, editingTasks]);
 
   // Calculate creative status distribution
   const creativeStatusData = useMemo(() => {
+    if (editingTasks.length === 0) return [];
     const buckets: Record<string, number> = {};
     editingTasks.forEach((t) => {
       buckets[t.status] = (buckets[t.status] || 0) + 1;
     });
     return Object.entries(buckets).map(([name, value]) => ({ name, value }));
-  }, []);
+  }, [editingTasks]);
 
   const handleAddCampaign = async (data: NewCampaignData) => {
-    // todo: replace with Firebase addDoc
-    const newCampaign: Campaign = {
-      id: String(Date.now()),
-      name: data.name,
-      channel: data.channel,
-      status: data.status as Campaign["status"],
-      spend: data.spend,
-      impressions: data.impressions,
-      clicks: data.clicks,
-      conversions: data.conversions,
-      cpa: data.conversions > 0 ? data.spend / data.conversions : 0,
-      roi: data.spend > 0 ? ((data.revenue - data.spend) / data.spend) * 100 : 0,
-      engagementRate: data.engagementRate,
-    };
-    setCampaigns((prev) => [newCampaign, ...prev]);
-    console.log("Campaign added:", newCampaign);
+    try {
+      await addCampaign(data);
+      toast({
+        title: "Campaign created",
+        description: `"${data.name}" has been added successfully.`,
+      });
+    } catch (err) {
+      console.error("Failed to add campaign:", err);
+      toast({
+        title: "Error",
+        description: "Failed to create campaign. Please try again.",
+        variant: "destructive",
+      });
+      throw err;
+    }
   };
 
   const handleCampaignClick = (campaign: Campaign) => {
@@ -182,6 +172,29 @@ export default function Dashboard() {
   const handleTaskClick = (task: EditingTask) => {
     console.log("Viewing task:", task.title);
   };
+
+  // Show configuration prompt if Firebase is not configured
+  if (!isConfigured) {
+    return <ConfigurationPrompt />;
+  }
+
+  // Show loading state
+  if (loading) {
+    return <LoadingSkeleton />;
+  }
+
+  // Show error state
+  if (error) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Card className="max-w-md p-8 text-center">
+          <AlertCircle className="mx-auto mb-4 h-12 w-12 text-destructive" />
+          <h2 className="mb-2 text-xl font-semibold">Something went wrong</h2>
+          <p className="text-muted-foreground">{error}</p>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -252,11 +265,17 @@ export default function Dashboard() {
               Add Task
             </Button>
           </div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {editingTasks.map((task) => (
-              <EditingTaskCard key={task.id} task={task} onClick={handleTaskClick} />
-            ))}
-          </div>
+          {editingTasks.length > 0 ? (
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {editingTasks.map((task) => (
+                <EditingTaskCard key={task.id} task={task} onClick={handleTaskClick} />
+              ))}
+            </div>
+          ) : (
+            <Card className="p-8 text-center">
+              <p className="text-muted-foreground">No editing tasks yet. Add your first task to get started.</p>
+            </Card>
+          )}
         </section>
       </main>
 

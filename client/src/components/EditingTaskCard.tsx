@@ -10,7 +10,7 @@ export interface EditingTask {
   campaignName: string;
   assignee: string;
   status: "Approved" | "In Review" | "Editing" | "Briefing" | "Blocked";
-  dueDate: string;
+  dueDate: Date; // Raw Date object for proper comparisons
 }
 
 interface EditingTaskCardProps {
@@ -26,6 +26,14 @@ const STATUS_STYLES: Record<EditingTask["status"], { bg: string; text: string; b
   Blocked: { bg: "bg-red-500/10", text: "text-red-500", border: "border-l-red-500" },
 };
 
+function formatDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
 export default function EditingTaskCard({ task, onClick }: EditingTaskCardProps) {
   const statusStyle = STATUS_STYLES[task.status];
   const initials = task.assignee
@@ -35,7 +43,12 @@ export default function EditingTaskCard({ task, onClick }: EditingTaskCardProps)
     .toUpperCase()
     .slice(0, 2);
 
-  const isOverdue = new Date(task.dueDate) < new Date() && task.status !== "Approved";
+  // Compare dates properly using Date objects
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const dueDate = new Date(task.dueDate);
+  dueDate.setHours(0, 0, 0, 0);
+  const isOverdue = dueDate < today && task.status !== "Approved";
 
   return (
     <Card
@@ -73,7 +86,7 @@ export default function EditingTaskCard({ task, onClick }: EditingTaskCardProps)
             )}
           >
             {isOverdue ? <Clock className="h-3 w-3" /> : <Calendar className="h-3 w-3" />}
-            <span>{task.dueDate}</span>
+            <span>{formatDate(task.dueDate)}</span>
           </div>
         </div>
       </div>

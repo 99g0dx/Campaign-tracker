@@ -1,6 +1,10 @@
 import EditingTaskCard, { type EditingTask } from "../EditingTaskCard";
 
 // todo: remove mock functionality
+const now = new Date();
+const daysAhead = (days: number) => new Date(now.getTime() + days * 86400000);
+const daysAgo = (days: number) => new Date(now.getTime() - days * 86400000);
+
 const mockTasks: EditingTask[] = [
   {
     id: "1",
@@ -8,7 +12,7 @@ const mockTasks: EditingTask[] = [
     campaignName: "Kah-Lo - Somersaults TikTok Push",
     assignee: "Tomi",
     status: "Editing",
-    dueDate: "Dec 12, 2025",
+    dueDate: daysAhead(1),
   },
   {
     id: "2",
@@ -16,7 +20,7 @@ const mockTasks: EditingTask[] = [
     campaignName: "Rema Fan Edit Challenge",
     assignee: "Ada",
     status: "In Review",
-    dueDate: "Dec 13, 2025",
+    dueDate: daysAhead(2),
   },
   {
     id: "3",
@@ -24,7 +28,7 @@ const mockTasks: EditingTask[] = [
     campaignName: "Brand UGC Influencer Sprint",
     assignee: "Emeka",
     status: "Approved",
-    dueDate: "Dec 10, 2025",
+    dueDate: daysAgo(1),
   },
   {
     id: "4",
@@ -32,7 +36,7 @@ const mockTasks: EditingTask[] = [
     campaignName: "Rema Fan Edit Challenge",
     assignee: "Daye",
     status: "Briefing",
-    dueDate: "Dec 14, 2025",
+    dueDate: daysAhead(3),
   },
   {
     id: "5",
@@ -40,7 +44,7 @@ const mockTasks: EditingTask[] = [
     campaignName: "Brand UGC Influencer Sprint",
     assignee: "Zee",
     status: "Blocked",
-    dueDate: "Dec 13, 2025",
+    dueDate: daysAgo(2),
   },
 ];
 
