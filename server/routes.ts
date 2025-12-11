@@ -259,6 +259,10 @@ export async function registerRoutes(
         postStatus: z.enum(postStatusOptions).optional(),
         creatorName: z.string().optional(),
         url: z.string().optional(),
+        views: z.number().optional(),
+        likes: z.number().optional(),
+        comments: z.number().optional(),
+        shares: z.number().optional(),
       });
 
       const parsed = updateSchema.safeParse(req.body);
@@ -273,8 +277,13 @@ export async function registerRoutes(
 
       const { url, ...otherUpdates } = parsed.data;
       
-      // If URL is being updated, validate and update platform
-      if (url && url.trim() && !url.startsWith("placeholder://")) {
+      // Check if URL is actually changing (different from current URL)
+      const isNewUrl = url && url.trim() && 
+                       !url.startsWith("placeholder://") && 
+                       url.trim() !== link.url;
+      
+      // If URL is being updated to a new value, validate and trigger scraping
+      if (isNewUrl) {
         const platform = getPlatformFromUrl(url);
         if (platform === "Unknown") {
           return res.status(400).json({ 
@@ -326,6 +335,7 @@ export async function registerRoutes(
         const updated = await storage.getSocialLink(id);
         res.json(updated);
       } else {
+        // No URL change, just update other fields (including manual metrics)
         const updated = await storage.updateSocialLink(id, otherUpdates);
         res.json(updated);
       }

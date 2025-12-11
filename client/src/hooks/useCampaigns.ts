@@ -97,7 +97,16 @@ export function useAddSocialLink() {
 
 export function useUpdateSocialLink() {
   return useMutation({
-    mutationFn: async (data: { id: number; postStatus?: PostStatus; creatorName?: string; url?: string }) => {
+    mutationFn: async (data: { 
+      id: number; 
+      postStatus?: PostStatus; 
+      creatorName?: string; 
+      url?: string;
+      views?: number;
+      likes?: number;
+      comments?: number;
+      shares?: number;
+    }) => {
       const { id, ...updateData } = data;
       const response = await apiRequest("PATCH", `/api/social-links/${id}`, updateData);
       return response.json();

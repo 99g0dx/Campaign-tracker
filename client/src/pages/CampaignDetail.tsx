@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -44,6 +44,7 @@ import {
   TrendingUp,
   TrendingDown,
   BarChart3,
+  Pencil,
 } from "lucide-react";
 import {
   useCampaigns,
@@ -224,12 +225,28 @@ function EditLinkModal({
   onOpenChange: (open: boolean) => void;
   link: SocialLink | null;
 }) {
-  const [url, setUrl] = useState(link?.url || "");
-  const [creatorName, setCreatorName] = useState(link?.creatorName || "");
+  const [url, setUrl] = useState("");
+  const [creatorName, setCreatorName] = useState("");
+  const [views, setViews] = useState("");
+  const [likes, setLikes] = useState("");
+  const [comments, setComments] = useState("");
+  const [shares, setShares] = useState("");
   const { mutate: updateLink, isPending } = useUpdateSocialLink();
   const { toast } = useToast();
 
   const isPlaceholder = link?.url.startsWith("placeholder://");
+
+  // Reset form when modal opens or link changes
+  useEffect(() => {
+    if (open && link) {
+      setUrl(link.url.startsWith("placeholder://") ? "" : link.url);
+      setCreatorName(link.creatorName || "");
+      setViews(link.views?.toString() || "0");
+      setLikes(link.likes?.toString() || "0");
+      setComments(link.comments?.toString() || "0");
+      setShares(link.shares?.toString() || "0");
+    }
+  }, [open, link?.id]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -240,11 +257,21 @@ function EditLinkModal({
         id: link.id,
         url: url.trim() || undefined,
         creatorName: creatorName.trim() || undefined,
+        views: parseInt(views) || 0,
+        likes: parseInt(likes) || 0,
+        comments: parseInt(comments) || 0,
+        shares: parseInt(shares) || 0,
       },
       {
         onSuccess: () => {
+          setUrl("");
+          setCreatorName("");
+          setViews("");
+          setLikes("");
+          setComments("");
+          setShares("");
           onOpenChange(false);
-          toast({ title: "Updated", description: "Link updated successfully" });
+          toast({ title: "Updated", description: "Creator updated successfully" });
         },
         onError: (error: Error) => {
           toast({
@@ -257,15 +284,27 @@ function EditLinkModal({
     );
   };
 
+  const handleClose = (newOpen: boolean) => {
+    if (!newOpen) {
+      setUrl("");
+      setCreatorName("");
+      setViews("");
+      setLikes("");
+      setComments("");
+      setShares("");
+    }
+    onOpenChange(newOpen);
+  };
+
   if (!link) return null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="modal-edit-link">
+    <Dialog open={open} onOpenChange={handleClose}>
+      <DialogContent data-testid="modal-edit-link" className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Edit Creator Link</DialogTitle>
+          <DialogTitle>Edit Creator</DialogTitle>
           <DialogDescription>
-            {isPlaceholder ? "Add the post URL for this creator" : "Update the link details"}
+            {isPlaceholder ? "Add post details for this creator" : "Update creator and engagement data"}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
@@ -284,16 +323,71 @@ function EditLinkModal({
             <Input
               id="url"
               placeholder="https://www.tiktok.com/@user/video/..."
-              value={isPlaceholder ? "" : url}
+              value={url}
               onChange={(e) => setUrl(e.target.value)}
               data-testid="input-edit-url"
             />
           </div>
+          
+          <div className="border-t pt-4">
+            <Label className="text-sm text-muted-foreground mb-3 block">Engagement Metrics (manual entry)</Label>
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <Label htmlFor="views" className="text-xs">Views</Label>
+                <Input
+                  id="views"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={views}
+                  onChange={(e) => setViews(e.target.value)}
+                  data-testid="input-edit-views"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="likes" className="text-xs">Likes</Label>
+                <Input
+                  id="likes"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={likes}
+                  onChange={(e) => setLikes(e.target.value)}
+                  data-testid="input-edit-likes"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="comments" className="text-xs">Comments</Label>
+                <Input
+                  id="comments"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={comments}
+                  onChange={(e) => setComments(e.target.value)}
+                  data-testid="input-edit-comments"
+                />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="shares" className="text-xs">Shares</Label>
+                <Input
+                  id="shares"
+                  type="number"
+                  min="0"
+                  placeholder="0"
+                  value={shares}
+                  onChange={(e) => setShares(e.target.value)}
+                  data-testid="input-edit-shares"
+                />
+              </div>
+            </div>
+          </div>
+          
           <div className="flex justify-end gap-3 pt-2">
             <Button
               type="button"
               variant="outline"
-              onClick={() => onOpenChange(false)}
+              onClick={() => handleClose(false)}
               disabled={isPending}
             >
               Cancel
@@ -697,6 +791,14 @@ export default function CampaignDetail() {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex items-center justify-end gap-1">
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => setEditLink(link)}
+                                data-testid={`button-edit-${link.id}`}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </Button>
                               {isPlaceholder ? (
                                 <Button
                                   size="sm"

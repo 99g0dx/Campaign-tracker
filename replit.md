@@ -57,7 +57,7 @@ shared/
 - `POST /api/campaigns` - Create new campaign
 - `GET /api/social-links` - Get all social links
 - `POST /api/social-links` - Add new social link with optional creatorName (triggers scraping)
-- `PATCH /api/social-links/:id` - Update post status or creator name
+- `PATCH /api/social-links/:id` - Update post status, creator name, URL, and engagement metrics (views, likes, comments, shares)
 - `POST /api/social-links/:id/rescrape` - Rescrape engagement data
 
 ## Features
@@ -65,9 +65,10 @@ shared/
 2. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs with optional creator name
 3. **Post Status Tracking** - Track workflow status per post: Pending, Briefed, Active, Done
 4. **Track Engagement** - Automatic scraping of views, likes, comments, shares
-5. **Dashboard** - Overview of total views, engagement, posts, and active campaigns
-6. **Per-Campaign Stats** - See aggregated engagement for each campaign
-7. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with uptick/downtick indicators
+5. **Edit Creators & Posts** - Click pencil icon to edit creator name, URL, and manually enter/correct engagement metrics
+6. **Dashboard** - Overview of total views, engagement, posts, and active campaigns
+7. **Per-Campaign Stats** - See aggregated engagement for each campaign
+8. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with uptick/downtick indicators
 
 ## Social Media Scraping
 The scraper attempts to extract engagement data from supported platforms:
