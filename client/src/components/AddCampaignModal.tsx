@@ -93,7 +93,7 @@ export default function AddCampaignModal({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} className="space-y-6 max-h-[calc(100vh-200px)] overflow-y-auto pr-4">
           <div className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Campaign Name</Label>
