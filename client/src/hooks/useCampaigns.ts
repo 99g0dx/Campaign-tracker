@@ -24,12 +24,16 @@ export interface NewCampaignData {
   status?: string;
 }
 
+export type PostStatus = "pending" | "briefed" | "active" | "done";
+
 export interface SocialLink {
   id: number;
   campaignId: number;
   url: string;
   platform: string;
   postId: string | null;
+  creatorName: string | null;
+  postStatus: PostStatus;
   views: number | null;
   likes: number | null;
   comments: number | null;
@@ -80,8 +84,22 @@ export function useCampaignSocialLinks(campaignId: number) {
 
 export function useAddSocialLink() {
   return useMutation({
-    mutationFn: async (data: { url: string; campaignId: number }) => {
+    mutationFn: async (data: { url: string; campaignId: number; creatorName?: string }) => {
       const response = await apiRequest("POST", "/api/social-links", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+    },
+  });
+}
+
+export function useUpdateSocialLink() {
+  return useMutation({
+    mutationFn: async (data: { id: number; postStatus?: PostStatus; creatorName?: string }) => {
+      const { id, ...updateData } = data;
+      const response = await apiRequest("PATCH", `/api/social-links/${id}`, updateData);
       return response.json();
     },
     onSuccess: () => {

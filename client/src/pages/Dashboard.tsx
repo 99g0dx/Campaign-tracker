@@ -37,11 +37,21 @@ import {
   useSocialLinks,
   useAddSocialLink,
   useRescrapeSocialLink,
+  useUpdateSocialLink,
   type Campaign,
   type SocialLink,
+  type PostStatus,
 } from "@/hooks/useCampaigns";
 import AddCampaignModal from "@/components/AddCampaignModal";
 import { useToast } from "@/hooks/use-toast";
+import { User } from "lucide-react";
+
+const POST_STATUS_OPTIONS: { value: PostStatus; label: string; color: string }[] = [
+  { value: "pending", label: "Pending", color: "bg-muted text-muted-foreground" },
+  { value: "briefed", label: "Briefed", color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200" },
+  { value: "active", label: "Active", color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" },
+  { value: "done", label: "Done", color: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200" },
+];
 
 function formatNumber(num: number | null | undefined): string {
   if (num === null || num === undefined) return "0";
@@ -78,6 +88,11 @@ function CampaignCard({
 }) {
   const campaignLinks = socialLinks.filter((l) => l.campaignId === campaign.id);
   const { mutate: rescrape, isPending: isRescraping } = useRescrapeSocialLink();
+  const { mutate: updateLink } = useUpdateSocialLink();
+
+  const handleStatusChange = (linkId: number, newStatus: PostStatus) => {
+    updateLink({ id: linkId, postStatus: newStatus });
+  };
 
   return (
     <Card className="overflow-visible" data-testid={`card-campaign-${campaign.id}`}>
@@ -157,55 +172,86 @@ function CampaignCard({
 
           {campaignLinks.length > 0 && (
             <div className="space-y-2">
-              {campaignLinks.map((link) => (
-                <div
-                  key={link.id}
-                  className="flex items-center justify-between gap-2 rounded-md border p-2 text-sm"
-                  data-testid={`link-${link.id}`}
-                >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Badge className={`text-xs ${getPlatformColor(link.platform)}`}>
-                      {link.platform}
-                    </Badge>
-                    <a
-                      href={link.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="truncate text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
-                    >
-                      <span className="truncate max-w-[150px]">{link.url}</span>
-                      <ExternalLink className="h-3 w-3 shrink-0" />
-                    </a>
+              {campaignLinks.map((link) => {
+                const statusOption = POST_STATUS_OPTIONS.find(o => o.value === link.postStatus) || POST_STATUS_OPTIONS[0];
+                return (
+                  <div
+                    key={link.id}
+                    className="rounded-md border p-3 text-sm space-y-2"
+                    data-testid={`link-${link.id}`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                        <Badge className={`text-xs ${getPlatformColor(link.platform)}`}>
+                          {link.platform}
+                        </Badge>
+                        {link.creatorName && (
+                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                            <User className="h-3 w-3" />
+                            {link.creatorName}
+                          </span>
+                        )}
+                      </div>
+                      <Select
+                        value={link.postStatus}
+                        onValueChange={(v) => handleStatusChange(link.id, v as PostStatus)}
+                      >
+                        <SelectTrigger 
+                          className={`w-[100px] h-7 text-xs ${statusOption.color}`}
+                          data-testid={`select-status-${link.id}`}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {POST_STATUS_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <a
+                        href={link.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="truncate text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 text-xs"
+                      >
+                        <span className="truncate max-w-[200px]">{link.url}</span>
+                        <ExternalLink className="h-3 w-3 shrink-0" />
+                      </a>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {link.status === "scraped" && (
+                          <span className="text-xs text-muted-foreground">
+                            {formatNumber(link.views)} views
+                          </span>
+                        )}
+                        {link.status === "scraping" && (
+                          <Badge variant="outline" className="text-xs">
+                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                            Scraping
+                          </Badge>
+                        )}
+                        {link.status === "error" && (
+                          <Badge variant="destructive" className="text-xs">
+                            Error
+                          </Badge>
+                        )}
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          disabled={isRescraping || link.status === "scraping"}
+                          onClick={() => rescrape(link.id)}
+                          data-testid={`button-rescrape-${link.id}`}
+                        >
+                          <RefreshCw className={`h-3 w-3 ${isRescraping ? "animate-spin" : ""}`} />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    {link.status === "scraped" && (
-                      <span className="text-xs text-muted-foreground">
-                        {formatNumber(link.views)} views
-                      </span>
-                    )}
-                    {link.status === "scraping" && (
-                      <Badge variant="outline" className="text-xs">
-                        <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                        Scraping
-                      </Badge>
-                    )}
-                    {link.status === "error" && (
-                      <Badge variant="destructive" className="text-xs">
-                        Error
-                      </Badge>
-                    )}
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      disabled={isRescraping || link.status === "scraping"}
-                      onClick={() => rescrape(link.id)}
-                      data-testid={`button-rescrape-${link.id}`}
-                    >
-                      <RefreshCw className={`h-3 w-3 ${isRescraping ? "animate-spin" : ""}`} />
-                    </Button>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -226,19 +272,34 @@ function AddLinkModal({
   campaigns: Campaign[];
 }) {
   const [url, setUrl] = useState("");
+  const [creatorName, setCreatorName] = useState("");
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(campaignId);
   const { mutate: addLink, isPending } = useAddSocialLink();
+  const { toast } = useToast();
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!url.trim() || !selectedCampaignId) return;
 
     addLink(
-      { url, campaignId: selectedCampaignId },
+      { 
+        url, 
+        campaignId: selectedCampaignId,
+        creatorName: creatorName.trim() || undefined,
+      },
       {
         onSuccess: () => {
           setUrl("");
+          setCreatorName("");
           onOpenChange(false);
+          toast({ title: "Link added", description: "Scraping engagement data..." });
+        },
+        onError: (error: Error) => {
+          toast({ 
+            title: "Failed to add link", 
+            description: error.message || "Please check the URL and try again",
+            variant: "destructive" 
+          });
         },
       }
     );
@@ -281,6 +342,16 @@ function AddLinkModal({
               onChange={(e) => setUrl(e.target.value)}
               data-testid="input-link-url"
               required
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="creatorName">Creator Name (optional)</Label>
+            <Input
+              id="creatorName"
+              placeholder="@creator_handle"
+              value={creatorName}
+              onChange={(e) => setCreatorName(e.target.value)}
+              data-testid="input-creator-name"
             />
           </div>
           <div className="flex justify-end gap-3 pt-2">
