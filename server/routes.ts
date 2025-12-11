@@ -5,6 +5,7 @@ import { insertCampaignSchema, insertSocialLinkSchema, postStatusOptions } from 
 import { z } from "zod";
 import { scrapeSocialLink, getPlatformFromUrl } from "./scraper";
 import { setupAuth, isAuthenticated } from "./replitAuth";
+import profileRoutes from "./profileRoutes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -12,6 +13,9 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Setup authentication (includes /auth/login, /auth/logout, /auth/callback, /auth/user)
   await setupAuth(app);
+
+  // Profile routes for KYC verification (requires authentication)
+  app.use("/api/profile", profileRoutes);
 
   // Seed data on startup
   await storage.seedDataIfEmpty();

@@ -111,8 +111,21 @@ export async function setupAuth(app: Express) {
   app.get("/auth/callback", (req, res, next) => {
     ensureStrategy(req.hostname);
     passport.authenticate(`replitauth:${req.hostname}`, {
-      successReturnToOrRedirect: "/",
       failureRedirect: "/auth/login",
+    }, async (err: any, user: any) => {
+      if (err || !user) {
+        return res.redirect("/auth/login");
+      }
+      req.logIn(user, async (loginErr: any) => {
+        if (loginErr) {
+          return res.redirect("/auth/login");
+        }
+        const dbUser = await storage.getUser(user.claims.sub);
+        if (dbUser && dbUser.isVerified) {
+          return res.redirect("/");
+        }
+        return res.redirect("/onboarding");
+      });
     })(req, res, next);
   });
 

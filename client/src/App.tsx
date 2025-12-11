@@ -1,4 +1,4 @@
-import { Switch, Route } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -7,11 +7,12 @@ import { useAuth } from "@/hooks/useAuth";
 import Dashboard from "@/pages/Dashboard";
 import CampaignDetail from "@/pages/CampaignDetail";
 import Landing from "@/pages/Landing";
+import Onboarding from "@/pages/Onboarding";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
 function Router() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
 
   if (isLoading) {
     return (
@@ -21,16 +22,29 @@ function Router() {
     );
   }
 
+  if (!isAuthenticated) {
+    return (
+      <Switch>
+        <Route path="/" component={Landing} />
+        <Route component={Landing} />
+      </Switch>
+    );
+  }
+
+  if (!user?.isVerified) {
+    return (
+      <Switch>
+        <Route path="/onboarding" component={Onboarding} />
+        <Route>{() => <Redirect to="/onboarding" />}</Route>
+      </Switch>
+    );
+  }
+
   return (
     <Switch>
-      {!isAuthenticated ? (
-        <Route path="/" component={Landing} />
-      ) : (
-        <>
-          <Route path="/" component={Dashboard} />
-          <Route path="/campaign/:id" component={CampaignDetail} />
-        </>
-      )}
+      <Route path="/" component={Dashboard} />
+      <Route path="/campaign/:id" component={CampaignDetail} />
+      <Route path="/onboarding">{() => <Redirect to="/" />}</Route>
       <Route component={NotFound} />
     </Switch>
   );

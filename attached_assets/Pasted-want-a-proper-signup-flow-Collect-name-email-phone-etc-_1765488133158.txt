@@ -1,0 +1,328 @@
+want a proper signup flow:
+
+Collect name, email, phone etc
+
+Send a verification code
+
+User enters the code, then they can use the app
+
+We can keep Replit Auth for the actual sign in, and put this “KYC” flow on top of it.
+
+Below is a clean way to add it without breaking what already works.
+
+1. Extend your user model
+
+Somewhere in your Drizzle schema (or whatever you use for DB), add fields for profile + verification.
+
+Example Drizzle snippet:
+
+// server/db/schema.ts
+import { pgTable, text, boolean, timestamp } from "drizzle-orm/pg-core";
+
+export const users = pgTable("users", {
+  id: text("id").primaryKey(), // you already have this
+  replitId: text("replit_id").notNull(), // or whatever you use
+  email: text("email").notNull(),
+  fullName: text("full_name"),
+  phone: text("phone"),
+  isVerified: boolean("is_verified").default(false).notNull(),
+  verificationCode: text("verification_code"),
+  verificationExpiresAt: timestamp("verification_expires_at"),
+});
+
+
+Run the migration so the table has these columns.
+
+2. Update the Replit callback to send new users to onboarding
+
+In server/replitAuth.ts (or wherever your /auth/callback lives), after you create or find the user, redirect based on isVerified.
+
+// server/replitAuth.ts (inside /auth/callback handler)
+const { id, email, name } = replitProfile; // adjust to your actual profile
+
+let user = await db.query.users.findFirst({
+  where: (u, { eq }) => eq(u.replitId, id),
+});
+
+if (!user) {
+  // create a basic user record
+  [user] = await db
+    .insert(users)
+    .values({
+      id,
+      replitId: id,
+      email,
+      fullName: name ?? null,
+      isVerified: false,
+    })
+    .returning();
+}
+
+// set session cookie etc here...
+
+if (!user.isVerified) {
+  return res.redirect("/onboarding");
+}
+
+return res.redirect("/dashboard");
+
+
+So first time they log in through Replit they are taken to /onboarding.
+
+3. Backend routes for profile + verification code
+
+Create a small router, for example server/routes/profile.ts.
+
+// server/routes/profile.ts
+import express from "express";
+import { db } from "../db/client";
+import { users } from "../db/schema";
+import crypto from "crypto";
+
+const router = express.Router();
+
+// helper to get current user from session
+function requireUser(req, res, next) {
+  const userId = req.session?.userId;
+  if (!userId) return res.status(401).json({ error: "Not authenticated" });
+  req.userId = userId;
+  next();
+}
+
+// 1) Save name, phone, and send code
+router.post("/start", requireUser, async (req, res) => {
+  const { fullName, phone, email } = req.body;
+
+  const code = crypto.randomInt(100000, 999999).toString();
+  const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+
+  const [user] = await db
+    .update(users)
+    .set({
+      fullName,
+      phone,
+      email,
+      isVerified: false,
+      verificationCode: code,
+      verificationExpiresAt: expires,
+    })
+    .where(users.id.eq(req.userId))
+    .returning();
+
+  // send email here
+  await sendVerificationEmail(user.email, code);
+
+  res.json({ ok: true });
+});
+
+// 2) Verify code
+router.post("/verify", requireUser, async (req, res) => {
+  const { code } = req.body;
+
+  const user = await db.query.users.findFirst({
+    where: (u, { eq }) => eq(u.id, req.userId),
+  });
+
+  if (
+    !user ||
+    !user.verificationCode ||
+    user.verificationCode !== code ||
+    !user.verificationExpiresAt ||
+    user.verificationExpiresAt < new Date()
+  ) {
+    return res.status(400).json({ error: "Invalid or expired code" });
+  }
+
+  await db
+    .update(users)
+    .set({
+      isVerified: true,
+      verificationCode: null,
+      verificationExpiresAt: null,
+    })
+    .where(users.id.eq(req.userId));
+
+  res.json({ ok: true });
+});
+
+// simple stub, plug your mail provider here
+async function sendVerificationEmail(to: string, code: string) {
+  console.log(`Send email to ${to} with verification code ${code}`);
+  // Example with Resend, Nodemailer, etc once you are ready
+}
+
+export default router;
+
+
+Mount it in server/index.ts:
+
+import profileRoutes from "./routes/profile";
+
+app.use("/api/profile", profileRoutes);
+
+4. Frontend onboarding and verification pages
+Onboarding page (collect name, email, phone)
+// client/src/pages/Onboarding.tsx
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+
+export default function Onboarding() {
+  const [fullName, setFullName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [step, setStep] = useState<"form" | "code">("form");
+  const [code, setCode] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
+
+  async function handleStart(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/profile/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, email, phone }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Could not start verification");
+      }
+
+      setStep("code");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleVerify(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch("/api/profile/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Verification failed");
+      }
+
+      navigate("/dashboard");
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-xl">
+        {step === "form" && (
+          <>
+            <h1 className="text-xl font-semibold mb-2">Complete signup</h1>
+            <p className="text-sm text-slate-300 mb-6">
+              Enter your details so we can set up your Campaign Tracker account.
+            </p>
+
+            <form onSubmit={handleStart} className="space-y-4">
+              <input
+                className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                placeholder="Full name"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+              />
+              <input
+                className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                placeholder="Email"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+              />
+              <input
+                className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                placeholder="Phone number"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                required
+              />
+
+              {error && (
+                <p className="text-xs text-red-400">
+                  {error}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-xl px-4 py-2 text-sm font-medium bg-orange-500 disabled:opacity-60"
+              >
+                {loading ? "Sending code..." : "Continue"}
+              </button>
+            </form>
+          </>
+        )}
+
+        {step === "code" && (
+          <>
+            <h1 className="text-xl font-semibold mb-2">
+              Enter verification code
+            </h1>
+            <p className="text-sm text-slate-300 mb-6">
+              We sent a 6 digit code to your email. Enter it to finish signup.
+            </p>
+
+            <form onSubmit={handleVerify} className="space-y-4">
+              <input
+                className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm tracking-[0.3em] text-center"
+                placeholder="123456"
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                maxLength={6}
+                required
+              />
+
+              {error && (
+                <p className="text-xs text-red-400">
+                  {error}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="w-full rounded-xl px-4 py-2 text-sm font-medium bg-orange-500 disabled:opacity-60"
+              >
+                {loading ? "Verifying..." : "Verify and continue"}
+              </button>
+            </form>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+Add route in your client router:
+
+// client/src/App.tsx
+import Onboarding from "./pages/Onboarding";
+
+<Routes>
+  {/* existing routes */}
+  <Route path="/onboarding" element={<Onboarding />} />
