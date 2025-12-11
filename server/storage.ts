@@ -1,13 +1,16 @@
 import { db } from "./db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, asc } from "drizzle-orm";
 import {
   campaigns,
   socialLinks,
+  engagementHistory,
   type Campaign,
   type InsertCampaign,
   type SocialLink,
   type InsertSocialLink,
   type CampaignWithStats,
+  type InsertEngagementHistory,
+  type EngagementHistory,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -23,6 +26,11 @@ export interface IStorage {
   getSocialLink(id: number): Promise<SocialLink | undefined>;
   createSocialLink(link: InsertSocialLink): Promise<SocialLink>;
   updateSocialLink(id: number, data: Partial<SocialLink>): Promise<SocialLink | undefined>;
+  
+  // Engagement History
+  createEngagementSnapshot(data: InsertEngagementHistory): Promise<EngagementHistory>;
+  getEngagementHistory(socialLinkId: number): Promise<EngagementHistory[]>;
+  getCampaignEngagementHistory(campaignId: number): Promise<{ date: string; views: number; likes: number; comments: number; shares: number; totalEngagement: number }[]>;
   
   // Seeding
   seedDataIfEmpty(): Promise<void>;
@@ -92,6 +100,52 @@ export class DatabaseStorage implements IStorage {
       .where(eq(socialLinks.id, id))
       .returning();
     return updated;
+  }
+
+  async createEngagementSnapshot(data: InsertEngagementHistory): Promise<EngagementHistory> {
+    const [snapshot] = await db.insert(engagementHistory).values(data).returning();
+    return snapshot;
+  }
+
+  async getEngagementHistory(socialLinkId: number): Promise<EngagementHistory[]> {
+    return await db.select()
+      .from(engagementHistory)
+      .where(eq(engagementHistory.socialLinkId, socialLinkId))
+      .orderBy(asc(engagementHistory.recordedAt));
+  }
+
+  async getCampaignEngagementHistory(campaignId: number): Promise<{ date: string; views: number; likes: number; comments: number; shares: number; totalEngagement: number }[]> {
+    const links = await this.getSocialLinksByCampaign(campaignId);
+    const linkIds = links.map(l => l.id);
+    
+    if (linkIds.length === 0) {
+      return [];
+    }
+    
+    const allHistory = await db.select()
+      .from(engagementHistory)
+      .orderBy(asc(engagementHistory.recordedAt));
+    
+    const filteredHistory = allHistory.filter(h => linkIds.includes(h.socialLinkId));
+    
+    const groupedByDate = new Map<string, { views: number; likes: number; comments: number; shares: number; totalEngagement: number }>();
+    
+    for (const record of filteredHistory) {
+      const date = record.recordedAt.toISOString().split('T')[0];
+      const existing = groupedByDate.get(date) || { views: 0, likes: 0, comments: 0, shares: 0, totalEngagement: 0 };
+      
+      groupedByDate.set(date, {
+        views: existing.views + (record.views || 0),
+        likes: existing.likes + (record.likes || 0),
+        comments: existing.comments + (record.comments || 0),
+        shares: existing.shares + (record.shares || 0),
+        totalEngagement: existing.totalEngagement + (record.totalEngagement || 0),
+      });
+    }
+    
+    return Array.from(groupedByDate.entries())
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
   }
 
   async seedDataIfEmpty(): Promise<void> {

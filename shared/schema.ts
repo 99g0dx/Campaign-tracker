@@ -66,6 +66,26 @@ export type CampaignWithStats = Campaign & {
   postCount: number;
 };
 
+// Engagement history for tracking metrics over time
+export const engagementHistory = pgTable("engagement_history", {
+  id: serial("id").primaryKey(),
+  socialLinkId: integer("social_link_id").references(() => socialLinks.id).notNull(),
+  views: integer("views").default(0),
+  likes: integer("likes").default(0),
+  comments: integer("comments").default(0),
+  shares: integer("shares").default(0),
+  totalEngagement: integer("total_engagement").default(0),
+  recordedAt: timestamp("recorded_at").notNull().defaultNow(),
+});
+
+export const insertEngagementHistorySchema = createInsertSchema(engagementHistory).omit({
+  id: true,
+  recordedAt: true,
+});
+
+export type InsertEngagementHistory = z.infer<typeof insertEngagementHistorySchema>;
+export type EngagementHistory = typeof engagementHistory.$inferSelect;
+
 // Users table (existing)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
