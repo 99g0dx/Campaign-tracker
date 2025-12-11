@@ -408,7 +408,7 @@ export default function Dashboard() {
   const [sortBy, setSortBy] = useState<SortOption>("name");
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
 
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
   const { mutateAsync: addCampaign } = useAddCampaign();
@@ -468,11 +468,9 @@ export default function Dashboard() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem asChild data-testid="button-logout">
-                  <a href="/api/logout" className="flex items-center gap-2">
-                    <LogOut className="h-4 w-4" />
-                    Log out
-                  </a>
+                <DropdownMenuItem onClick={logout} data-testid="button-logout" className="cursor-pointer">
+                  <LogOut className="h-4 w-4 mr-2" />
+                  Log out
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

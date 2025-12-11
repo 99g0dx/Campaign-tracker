@@ -1,0 +1,128 @@
+1. Create a simple auth hook wrapper (client side)
+
+If you already have a useAuth hook, just make sure it exposes login and logout like this:
+
+// client/hooks/useAuth.ts
+import { useState } from "react";
+
+export function useAuth() {
+  const [isLoading, setIsLoading] = useState(false);
+
+  const login = async () => {
+    try {
+      setIsLoading(true);
+      // This should hit the server route that starts the Replit Auth flow
+      window.location.href = "/auth/login";
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    window.location.href = "/auth/logout";
+  };
+
+  return { login, logout, isLoading };
+}
+
+
+If you already have /auth/login and /auth/logout routes on the server, this will just call them correctly. If their paths are different, change the URLs.
+
+2. Login page (acts as Login + Signup)
+
+With Replit Auth / OAuth, “signup” usually happens automatically on first login. So you can have a single page that covers both:
+
+// client/pages/LoginPage.tsx
+import { useAuth } from "../hooks/useAuth";
+
+export default function LoginPage() {
+  const { login, isLoading } = useAuth();
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+      <div className="w-full max-w-md rounded-2xl border border-slate-800 bg-slate-900/70 p-8 shadow-xl">
+        <h1 className="text-2xl font-semibold mb-2">Campaign Tracker</h1>
+        <p className="text-sm text-slate-300 mb-6">
+          Log in or sign up to manage your campaigns and see performance.
+        </p>
+
+        <button
+          onClick={login}
+          disabled={isLoading}
+          className="w-full rounded-xl px-4 py-3 text-sm font-medium bg-orange-500 disabled:opacity-60"
+        >
+          {isLoading ? "Redirecting…" : "Continue with Replit / Social login"}
+        </button>
+
+        <p className="mt-4 text-xs text-slate-400">
+          On first login, we’ll automatically create your account and link it
+          to your Replit Auth profile.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+
+Then in your router, make sure:
+
+// client/App.tsx (or router file)
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import LoginPage from "./pages/LoginPage";
+import Dashboard from "./pages/Dashboard";
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        {/* …other routes */}
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+
+And in your auth guard, if the user is not logged in, redirect them to /login.
+
+3. Server: start the Replit Auth flow
+
+Somewhere in your Node / Express / Fastify routes (you likely already have this from the Replit Auth integration), make sure you have:
+
+// server/routes/auth.ts (pseudo-code, adapt to your framework)
+import express from "express";
+import { client } from "./replitAuthClient"; // your openid-client setup
+
+const router = express.Router();
+
+router.get("/login", async (req, res) => {
+  const redirectUrl = client.authorizationUrl({
+    scope: "openid profile email",
+    // state, nonce, etc if you use them
+  });
+
+  res.redirect(redirectUrl);
+});
+
+router.get("/callback", async (req, res) => {
+  // handle Replit Auth callback, create/find user in DB,
+  // set session cookie, then redirect to dashboard
+  // …
+  res.redirect("/dashboard");
+});
+
+router.get("/logout", (req, res) => {
+  // destroy session cookie, then:
+  res.redirect("/login");
+});
+
+export default router;
+
+
+Mount that under /auth:
+
+// server/index.ts
+import authRoutes from "./routes/auth";
+
+app.use("/auth", authRoutes);

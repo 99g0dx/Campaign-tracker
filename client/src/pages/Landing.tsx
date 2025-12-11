@@ -8,8 +8,11 @@ import {
   Zap,
   Shield,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Landing() {
+  const { login, isLoading } = useAuth();
+
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
@@ -19,9 +22,9 @@ export default function Landing() {
             <span className="text-xl font-bold">Campaign Tracker</span>
           </div>
           <div className="flex items-center gap-3">
-            <a href="/api/login">
-              <Button data-testid="button-login">Log In</Button>
-            </a>
+            <Button onClick={login} disabled={isLoading} data-testid="button-login">
+              {isLoading ? "Redirecting..." : "Log In"}
+            </Button>
           </div>
         </div>
       </header>
@@ -37,11 +40,9 @@ export default function Landing() {
               Get real-time analytics to measure your music promotion success.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <a href="/api/login">
-                <Button size="lg" data-testid="button-get-started">
-                  Get Started Free
-                </Button>
-              </a>
+              <Button size="lg" onClick={login} disabled={isLoading} data-testid="button-get-started">
+                {isLoading ? "Redirecting..." : "Get Started Free"}
+              </Button>
             </div>
           </div>
         </section>
@@ -124,11 +125,9 @@ export default function Landing() {
                 <p className="text-muted-foreground mb-6">
                   Start tracking your song marketing campaigns today.
                 </p>
-                <a href="/api/login">
-                  <Button size="lg" data-testid="button-start-tracking">
-                    Start Tracking
-                  </Button>
-                </a>
+                <Button size="lg" onClick={login} disabled={isLoading} data-testid="button-start-tracking">
+                  {isLoading ? "Redirecting..." : "Start Tracking"}
+                </Button>
               </div>
             </div>
           </div>
