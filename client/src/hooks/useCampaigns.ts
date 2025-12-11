@@ -84,7 +84,7 @@ export function useCampaignSocialLinks(campaignId: number) {
 
 export function useAddSocialLink() {
   return useMutation({
-    mutationFn: async (data: { url: string; campaignId: number; creatorName?: string }) => {
+    mutationFn: async (data: { url: string; campaignId: number; creatorName?: string; postStatus?: PostStatus }) => {
       const response = await apiRequest("POST", "/api/social-links", data);
       return response.json();
     },
@@ -97,7 +97,7 @@ export function useAddSocialLink() {
 
 export function useUpdateSocialLink() {
   return useMutation({
-    mutationFn: async (data: { id: number; postStatus?: PostStatus; creatorName?: string }) => {
+    mutationFn: async (data: { id: number; postStatus?: PostStatus; creatorName?: string; url?: string }) => {
       const { id, ...updateData } = data;
       const response = await apiRequest("PATCH", `/api/social-links/${id}`, updateData);
       return response.json();

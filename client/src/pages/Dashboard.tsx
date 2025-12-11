@@ -32,7 +32,9 @@ import {
   Loader2,
   ArrowUpDown,
   Filter,
+  ChevronRight,
 } from "lucide-react";
+import { Link } from "wouter";
 import {
   useCampaigns,
   useAddCampaign,
@@ -99,16 +101,21 @@ function CampaignCard({
   return (
     <Card className="overflow-visible" data-testid={`card-campaign-${campaign.id}`}>
       <CardHeader className="flex flex-row items-start justify-between gap-4">
-        <div className="space-y-1">
-          <CardTitle className="text-lg">{campaign.name}</CardTitle>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Music className="h-4 w-4" />
-            <span>{campaign.songTitle}</span>
-            {campaign.songArtist && (
-              <span className="text-muted-foreground/60">by {campaign.songArtist}</span>
-            )}
+        <Link href={`/campaign/${campaign.id}`} className="flex-1 hover-elevate rounded-md -m-2 p-2">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <CardTitle className="text-lg">{campaign.name}</CardTitle>
+              <ChevronRight className="h-4 w-4 text-muted-foreground" />
+            </div>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Music className="h-4 w-4" />
+              <span>{campaign.songTitle}</span>
+              {campaign.songArtist && (
+                <span className="text-muted-foreground/60">by {campaign.songArtist}</span>
+              )}
+            </div>
           </div>
-        </div>
+        </Link>
         <Badge
           variant={campaign.status === "Active" ? "default" : "secondary"}
           className="shrink-0"

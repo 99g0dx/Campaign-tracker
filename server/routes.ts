@@ -86,9 +86,10 @@ export async function registerRoutes(
   app.post("/api/social-links", async (req, res) => {
     try {
       const urlSchema = z.object({
-        url: z.string().url("Please enter a valid URL"),
+        url: z.string(),
         campaignId: z.number(),
         creatorName: z.string().optional(),
+        postStatus: z.enum(postStatusOptions).optional(),
       });
 
       const parsed = urlSchema.safeParse(req.body);
@@ -96,10 +97,13 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.errors });
       }
 
-      const { url, campaignId, creatorName } = parsed.data;
-      const platform = getPlatformFromUrl(url);
+      const { url, campaignId, creatorName, postStatus } = parsed.data;
+      
+      // Check if it's a placeholder URL (creator added without link)
+      const isPlaceholder = url.startsWith("placeholder://");
+      const platform = isPlaceholder ? "Unknown" : getPlatformFromUrl(url);
 
-      if (platform === "Unknown") {
+      if (!isPlaceholder && platform === "Unknown") {
         return res.status(400).json({ 
           error: "Unsupported platform. Supported: TikTok, Instagram, YouTube, Twitter, Facebook" 
         });
@@ -117,7 +121,7 @@ export async function registerRoutes(
         platform,
         campaignId,
         creatorName: creatorName || null,
-        postStatus: "pending" as const,
+        postStatus: postStatus || "pending" as const,
         views: 0,
         likes: 0,
         comments: 0,
@@ -127,29 +131,33 @@ export async function registerRoutes(
 
       const link = await storage.createSocialLink(linkData);
 
-      // Start scraping in background and update
-      scrapeSocialLink(url).then(async (result) => {
-        if (result.success && result.data) {
-          await storage.updateSocialLink(link.id, {
-            ...result.data,
-            status: "scraped",
-            lastScrapedAt: new Date(),
-          });
-        } else {
+      // Only scrape if it's a real URL
+      if (!isPlaceholder) {
+        scrapeSocialLink(url).then(async (result) => {
+          if (result.success && result.data) {
+            await storage.updateSocialLink(link.id, {
+              ...result.data,
+              status: "scraped",
+              lastScrapedAt: new Date(),
+            });
+          } else {
+            await storage.updateSocialLink(link.id, {
+              status: "error",
+              errorMessage: result.error || "Failed to scrape",
+            });
+          }
+        }).catch(async (err) => {
+          console.error("Scraping error:", err);
           await storage.updateSocialLink(link.id, {
             status: "error",
-            errorMessage: result.error || "Failed to scrape",
+            errorMessage: err.message || "Scraping failed",
           });
-        }
-      }).catch(async (err) => {
-        console.error("Scraping error:", err);
-        await storage.updateSocialLink(link.id, {
-          status: "error",
-          errorMessage: err.message || "Scraping failed",
         });
-      });
 
-      res.status(201).json({ ...link, status: "scraping" });
+        res.status(201).json({ ...link, status: "scraping" });
+      } else {
+        res.status(201).json(link);
+      }
     } catch (error) {
       console.error("Failed to create social link:", error);
       res.status(500).json({ error: "Failed to create social link" });
@@ -195,7 +203,7 @@ export async function registerRoutes(
     }
   });
 
-  // Update social link (post status, creator name)
+  // Update social link (post status, creator name, url)
   app.patch("/api/social-links/:id", async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
@@ -206,6 +214,7 @@ export async function registerRoutes(
       const updateSchema = z.object({
         postStatus: z.enum(postStatusOptions).optional(),
         creatorName: z.string().optional(),
+        url: z.string().optional(),
       });
 
       const parsed = updateSchema.safeParse(req.body);
@@ -218,8 +227,53 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Social link not found" });
       }
 
-      const updated = await storage.updateSocialLink(id, parsed.data);
-      res.json(updated);
+      const { url, ...otherUpdates } = parsed.data;
+      
+      // If URL is being updated, validate and update platform
+      if (url && url.trim() && !url.startsWith("placeholder://")) {
+        const platform = getPlatformFromUrl(url);
+        if (platform === "Unknown") {
+          return res.status(400).json({ 
+            error: "Unsupported platform. Supported: TikTok, Instagram, YouTube, Twitter, Facebook" 
+          });
+        }
+        
+        // Update with new URL and platform, set to scraping
+        await storage.updateSocialLink(id, { 
+          ...otherUpdates, 
+          url, 
+          platform, 
+          status: "scraping" 
+        });
+        
+        // Start scraping in background
+        scrapeSocialLink(url).then(async (result) => {
+          if (result.success && result.data) {
+            await storage.updateSocialLink(id, {
+              ...result.data,
+              status: "scraped",
+              lastScrapedAt: new Date(),
+            });
+          } else {
+            await storage.updateSocialLink(id, {
+              status: "error",
+              errorMessage: result.error || "Failed to scrape",
+            });
+          }
+        }).catch(async (err) => {
+          console.error("Scraping error:", err);
+          await storage.updateSocialLink(id, {
+            status: "error",
+            errorMessage: err.message || "Scraping failed",
+          });
+        });
+        
+        const updated = await storage.getSocialLink(id);
+        res.json(updated);
+      } else {
+        const updated = await storage.updateSocialLink(id, otherUpdates);
+        res.json(updated);
+      }
     } catch (error) {
       console.error("Failed to update social link:", error);
       res.status(500).json({ error: "Failed to update social link" });

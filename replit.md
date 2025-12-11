@@ -20,7 +20,8 @@ client/
     hooks/
       useCampaigns.ts # React Query hooks
     pages/
-      Dashboard.tsx   # Main dashboard with all functionality
+      Dashboard.tsx     # Main dashboard with campaign cards
+      CampaignDetail.tsx # Individual campaign page with creators table
 server/
   db.ts             # Database connection
   storage.ts        # Data access layer
