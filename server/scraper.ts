@@ -120,7 +120,10 @@ async function scrapeTikTokWithApify(url: string, postId: string | null): Promis
           error: "Apify credit limit reached. Please add more credits to your Apify account.",
         };
       }
-      throw new Error(`Apify API error: ${response.status}`);
+      return {
+        success: false,
+        error: `Apify API error: ${response.status} - ${errorText.substring(0, 200)}`,
+      };
     }
 
     const results = await response.json();
@@ -134,11 +137,18 @@ async function scrapeTikTokWithApify(url: string, postId: string | null): Promis
     }
 
     const video = results[0];
-    const stats = video.stats || video.videoMeta || {};
-    const views = stats.playCount || video.playCount || 0;
-    const likes = stats.diggCount || video.diggCount || 0;
-    const comments = stats.commentCount || video.commentCount || 0;
-    const shares = stats.shareCount || video.shareCount || 0;
+    
+    if (video.error) {
+      return {
+        success: false,
+        error: video.error,
+      };
+    }
+
+    const views = video.playCount || 0;
+    const likes = video.diggCount || 0;
+    const comments = video.commentCount || 0;
+    const shares = video.shareCount || 0;
 
     const totalEngagement = likes + comments + shares;
     const engagementRate = views > 0 ? (totalEngagement / views) * 100 : 0;
