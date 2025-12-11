@@ -3,10 +3,13 @@ import { eq, desc, asc } from "drizzle-orm";
 import {
   campaigns,
   editingTasks,
+  socialLinks,
   type Campaign,
   type InsertCampaign,
   type EditingTask,
   type InsertEditingTask,
+  type SocialLink,
+  type InsertSocialLink,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -19,6 +22,13 @@ export interface IStorage {
   getEditingTasks(): Promise<EditingTask[]>;
   getEditingTask(id: number): Promise<EditingTask | undefined>;
   createEditingTask(task: InsertEditingTask): Promise<EditingTask>;
+  
+  // Social Links
+  getSocialLinks(): Promise<SocialLink[]>;
+  getSocialLinksByCampaign(campaignId: number): Promise<SocialLink[]>;
+  getSocialLink(id: number): Promise<SocialLink | undefined>;
+  createSocialLink(link: InsertSocialLink): Promise<SocialLink>;
+  updateSocialLink(id: number, data: Partial<SocialLink>): Promise<SocialLink | undefined>;
   
   // Seeding
   seedDataIfEmpty(): Promise<void>;
@@ -51,6 +61,34 @@ export class DatabaseStorage implements IStorage {
   async createEditingTask(task: InsertEditingTask): Promise<EditingTask> {
     const [newTask] = await db.insert(editingTasks).values(task).returning();
     return newTask;
+  }
+
+  async getSocialLinks(): Promise<SocialLink[]> {
+    return await db.select().from(socialLinks).orderBy(desc(socialLinks.createdAt));
+  }
+
+  async getSocialLinksByCampaign(campaignId: number): Promise<SocialLink[]> {
+    return await db.select().from(socialLinks)
+      .where(eq(socialLinks.campaignId, campaignId))
+      .orderBy(desc(socialLinks.createdAt));
+  }
+
+  async getSocialLink(id: number): Promise<SocialLink | undefined> {
+    const [link] = await db.select().from(socialLinks).where(eq(socialLinks.id, id));
+    return link;
+  }
+
+  async createSocialLink(link: InsertSocialLink): Promise<SocialLink> {
+    const [newLink] = await db.insert(socialLinks).values(link).returning();
+    return newLink;
+  }
+
+  async updateSocialLink(id: number, data: Partial<SocialLink>): Promise<SocialLink | undefined> {
+    const [updated] = await db.update(socialLinks)
+      .set(data)
+      .where(eq(socialLinks.id, id))
+      .returning();
+    return updated;
   }
 
   async seedDataIfEmpty(): Promise<void> {

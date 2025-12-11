@@ -1,8 +1,9 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCampaignSchema, insertEditingTaskSchema } from "@shared/schema";
+import { insertCampaignSchema, insertEditingTaskSchema, insertSocialLinkSchema } from "@shared/schema";
 import { z } from "zod";
+import { scrapeSocialLink, getPlatformFromUrl } from "./scraper";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -70,6 +71,136 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Failed to create editing task:", error);
       res.status(500).json({ error: "Failed to create editing task" });
+    }
+  });
+
+  // Get all social links
+  app.get("/api/social-links", async (_req, res) => {
+    try {
+      const links = await storage.getSocialLinks();
+      res.json(links);
+    } catch (error) {
+      console.error("Failed to fetch social links:", error);
+      res.status(500).json({ error: "Failed to fetch social links" });
+    }
+  });
+
+  // Get social links for a specific campaign
+  app.get("/api/campaigns/:campaignId/social-links", async (req, res) => {
+    try {
+      const campaignId = parseInt(req.params.campaignId, 10);
+      if (isNaN(campaignId)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+      const links = await storage.getSocialLinksByCampaign(campaignId);
+      res.json(links);
+    } catch (error) {
+      console.error("Failed to fetch campaign social links:", error);
+      res.status(500).json({ error: "Failed to fetch social links" });
+    }
+  });
+
+  // Add a new social link and scrape data
+  app.post("/api/social-links", async (req, res) => {
+    try {
+      const urlSchema = z.object({
+        url: z.string().url("Please enter a valid URL"),
+        campaignId: z.number().optional(),
+      });
+
+      const parsed = urlSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+
+      const { url, campaignId } = parsed.data;
+      const platform = getPlatformFromUrl(url);
+
+      if (platform === "Unknown") {
+        return res.status(400).json({ 
+          error: "Unsupported platform. Supported: TikTok, Instagram, YouTube, Twitter, Facebook" 
+        });
+      }
+
+      // Create the social link entry
+      const linkData = {
+        url,
+        platform,
+        campaignId: campaignId ?? null,
+        views: 0,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+        engagementRate: 0,
+      };
+
+      const link = await storage.createSocialLink(linkData);
+
+      // Start scraping in background and update
+      scrapeSocialLink(url).then(async (result) => {
+        if (result.success && result.data) {
+          await storage.updateSocialLink(link.id, {
+            ...result.data,
+            status: "scraped",
+            lastScrapedAt: new Date(),
+          });
+        } else {
+          await storage.updateSocialLink(link.id, {
+            status: "error",
+            errorMessage: result.error || "Failed to scrape",
+          });
+        }
+      }).catch(async (err) => {
+        console.error("Scraping error:", err);
+        await storage.updateSocialLink(link.id, {
+          status: "error",
+          errorMessage: err.message || "Scraping failed",
+        });
+      });
+
+      res.status(201).json({ ...link, status: "scraping" });
+    } catch (error) {
+      console.error("Failed to create social link:", error);
+      res.status(500).json({ error: "Failed to create social link" });
+    }
+  });
+
+  // Rescrape a social link
+  app.post("/api/social-links/:id/rescrape", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid link ID" });
+      }
+
+      const link = await storage.getSocialLink(id);
+      if (!link) {
+        return res.status(404).json({ error: "Social link not found" });
+      }
+
+      // Update status to scraping
+      await storage.updateSocialLink(id, { status: "scraping" });
+
+      // Start scraping
+      const result = await scrapeSocialLink(link.url);
+
+      if (result.success && result.data) {
+        const updated = await storage.updateSocialLink(id, {
+          ...result.data,
+          status: "scraped",
+          lastScrapedAt: new Date(),
+        });
+        res.json(updated);
+      } else {
+        await storage.updateSocialLink(id, {
+          status: "error",
+          errorMessage: result.error || "Failed to scrape",
+        });
+        res.status(400).json({ error: result.error || "Failed to scrape" });
+      }
+    } catch (error) {
+      console.error("Failed to rescrape social link:", error);
+      res.status(500).json({ error: "Failed to rescrape social link" });
     }
   });
 

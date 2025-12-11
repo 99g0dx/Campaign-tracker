@@ -17,6 +17,7 @@ import CreativeStatusChart from "@/components/CreativeStatusChart";
 import CampaignTable, { type Campaign } from "@/components/CampaignTable";
 import EditingTaskCard, { type EditingTask } from "@/components/EditingTaskCard";
 import AddCampaignModal, { type NewCampaignData } from "@/components/AddCampaignModal";
+import SocialLinksSection from "@/components/SocialLinksSection";
 import { useCampaigns, useEditingTasks, useAddCampaign } from "@/hooks/useCampaigns";
 import { useToast } from "@/hooks/use-toast";
 
@@ -206,6 +207,8 @@ export default function Dashboard() {
         <section>
           <CampaignTable campaigns={campaigns} onCampaignClick={handleCampaignClick} />
         </section>
+
+        <SocialLinksSection />
 
         <section className="space-y-4">
           <div className="flex items-center justify-between gap-4">

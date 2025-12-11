@@ -81,3 +81,64 @@ export function useAddEditingTask() {
     },
   });
 }
+
+// Social Links types
+export interface SocialLink {
+  id: number;
+  campaignId: number | null;
+  url: string;
+  platform: string;
+  postId: string | null;
+  views: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  engagementRate: number | null;
+  lastScrapedAt: string | null;
+  status: string;
+  errorMessage: string | null;
+  createdAt: string;
+}
+
+export function useSocialLinks() {
+  return useQuery<SocialLink[]>({
+    queryKey: ["/api/social-links"],
+    refetchInterval: 5000, // Poll every 5s to catch scraping updates
+  });
+}
+
+export function useCampaignSocialLinks(campaignId: number) {
+  return useQuery<SocialLink[]>({
+    queryKey: ["/api/campaigns", campaignId, "social-links"],
+    queryFn: async () => {
+      const response = await fetch(`/api/campaigns/${campaignId}/social-links`);
+      if (!response.ok) throw new Error("Failed to fetch");
+      return response.json();
+    },
+    enabled: !!campaignId,
+  });
+}
+
+export function useAddSocialLink() {
+  return useMutation({
+    mutationFn: async (data: { url: string; campaignId?: number }) => {
+      const response = await apiRequest("POST", "/api/social-links", data);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+    },
+  });
+}
+
+export function useRescrapeSocialLink() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiRequest("POST", `/api/social-links/${id}/rescrape`, {});
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+    },
+  });
+}

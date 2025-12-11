@@ -45,6 +45,35 @@ export const insertEditingTaskSchema = createInsertSchema(editingTasks).omit({
 export type InsertEditingTask = z.infer<typeof insertEditingTaskSchema>;
 export type EditingTask = typeof editingTasks.$inferSelect;
 
+// Social links table for tracking social media posts
+export const socialLinks = pgTable("social_links", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").references(() => campaigns.id),
+  url: text("url").notNull(),
+  platform: text("platform").notNull(),
+  postId: text("post_id"),
+  views: integer("views").default(0),
+  likes: integer("likes").default(0),
+  comments: integer("comments").default(0),
+  shares: integer("shares").default(0),
+  engagementRate: real("engagement_rate").default(0),
+  lastScrapedAt: timestamp("last_scraped_at"),
+  status: text("status").notNull().default("pending"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertSocialLinkSchema = createInsertSchema(socialLinks).omit({
+  id: true,
+  createdAt: true,
+  lastScrapedAt: true,
+  status: true,
+  errorMessage: true,
+});
+
+export type InsertSocialLink = z.infer<typeof insertSocialLinkSchema>;
+export type SocialLink = typeof socialLinks.$inferSelect;
+
 // Users table (existing)
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
