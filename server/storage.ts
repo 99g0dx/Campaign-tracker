@@ -4,6 +4,7 @@ import {
   campaigns,
   socialLinks,
   engagementHistory,
+  users,
   type Campaign,
   type InsertCampaign,
   type SocialLink,
@@ -11,9 +12,15 @@ import {
   type CampaignWithStats,
   type InsertEngagementHistory,
   type EngagementHistory,
+  type User,
+  type UpsertUser,
 } from "@shared/schema";
 
 export interface IStorage {
+  // User operations (required for Replit Auth)
+  getUser(id: string): Promise<User | undefined>;
+  upsertUser(user: UpsertUser): Promise<User>;
+  
   // Campaigns
   getCampaigns(): Promise<Campaign[]>;
   getCampaignsWithStats(): Promise<CampaignWithStats[]>;
@@ -37,6 +44,27 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  // User operations (required for Replit Auth)
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async upsertUser(userData: UpsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          ...userData,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return user;
+  }
+
   async getCampaigns(): Promise<Campaign[]> {
     return await db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
   }

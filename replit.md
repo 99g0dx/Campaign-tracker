@@ -9,6 +9,7 @@ A simplified SaaS dashboard for tracking digital marketing campaigns for songs. 
 - **Database**: PostgreSQL (Replit built-in)
 - **ORM**: Drizzle ORM
 - **API**: Express.js REST API
+- **Authentication**: Replit Auth (OpenID Connect)
 
 ## Project Structure
 ```
@@ -61,14 +62,15 @@ shared/
 - `POST /api/social-links/:id/rescrape` - Rescrape engagement data
 
 ## Features
-1. **Create Campaigns** - Name + Song title + Artist
-2. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs with optional creator name
-3. **Post Status Tracking** - Track workflow status per post: Pending, Briefed, Active, Done
-4. **Track Engagement** - Automatic scraping of views, likes, comments, shares
-5. **Edit Creators & Posts** - Click pencil icon to edit creator name, URL, and manually enter/correct engagement metrics
-6. **Dashboard** - Overview of total views, engagement, posts, and active campaigns
-7. **Per-Campaign Stats** - See aggregated engagement for each campaign
-8. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with uptick/downtick indicators
+1. **User Authentication** - Log in with Replit Auth (Google, GitHub, or email)
+2. **Create Campaigns** - Name + Song title + Artist
+3. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs with optional creator name
+4. **Post Status Tracking** - Track workflow status per post: Pending, Briefed, Active, Done
+5. **Track Engagement** - Automatic scraping of views, likes, comments, shares
+6. **Edit Creators & Posts** - Click pencil icon to edit creator name, URL, and manually enter/correct engagement metrics
+7. **Dashboard** - Overview of total views, engagement, posts, and active campaigns with user avatar and logout
+8. **Per-Campaign Stats** - See aggregated engagement for each campaign
+9. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with time range filters (24hrs to 90 days)
 
 ## Social Media Scraping
 The scraper uses Apify API for reliable engagement data extraction:
@@ -94,6 +96,8 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-11: Added Replit Auth authentication with user avatar and logout in dashboard header
+- 2025-12-11: Added time range filters to engagement charts (24hrs to 90 days)
 - 2025-12-11: Integrated Apify API for TikTok and Instagram scraping
 - 2025-12-11: Simplified app to focus on core campaign + social link tracking
 - 2025-12-11: Removed editing tasks and complex KPIs

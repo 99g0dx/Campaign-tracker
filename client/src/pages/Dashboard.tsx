@@ -18,6 +18,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Plus,
@@ -33,6 +40,7 @@ import {
   ArrowUpDown,
   Filter,
   ChevronRight,
+  LogOut,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -48,6 +56,7 @@ import {
 } from "@/hooks/useCampaigns";
 import AddCampaignModal from "@/components/AddCampaignModal";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/useAuth";
 import { User } from "lucide-react";
 
 const POST_STATUS_OPTIONS: { value: PostStatus; label: string; color: string }[] = [
@@ -399,6 +408,7 @@ export default function Dashboard() {
   const [sortBy, setSortBy] = useState<SortOption>("name");
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
 
+  const { user } = useAuth();
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
   const { mutateAsync: addCampaign } = useAddCampaign();
@@ -441,10 +451,32 @@ export default function Dashboard() {
             <h1 className="text-2xl font-bold">Campaign Tracker</h1>
             <p className="text-muted-foreground">Track your song campaigns and social engagement</p>
           </div>
-          <Button onClick={() => setCampaignModalOpen(true)} data-testid="button-new-campaign">
-            <Plus className="h-4 w-4 mr-2" />
-            New Campaign
-          </Button>
+          <div className="flex items-center gap-3">
+            <Button onClick={() => setCampaignModalOpen(true)} data-testid="button-new-campaign">
+              <Plus className="h-4 w-4 mr-2" />
+              New Campaign
+            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon" className="rounded-full" data-testid="button-user-menu">
+                  <Avatar className="h-8 w-8">
+                    <AvatarImage src={user?.profileImageUrl || undefined} alt={user?.firstName || "User"} />
+                    <AvatarFallback>
+                      {user?.firstName?.[0]?.toUpperCase() || user?.email?.[0]?.toUpperCase() || <User className="h-4 w-4" />}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem asChild data-testid="button-logout">
+                  <a href="/api/logout" className="flex items-center gap-2">
+                    <LogOut className="h-4 w-4" />
+                    Log out
+                  </a>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </header>
 
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
