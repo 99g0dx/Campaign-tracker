@@ -41,6 +41,7 @@ import {
   type SocialLink,
 } from "@/hooks/useCampaigns";
 import AddCampaignModal from "@/components/AddCampaignModal";
+import { useToast } from "@/hooks/use-toast";
 
 function formatNumber(num: number | null | undefined): string {
   if (num === null || num === undefined) return "0";

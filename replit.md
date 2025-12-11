@@ -1,12 +1,11 @@
-# Campaign Tracker - Digital Marketing Analytics Dashboard
+# Campaign Tracker - Song Marketing Dashboard
 
 ## Overview
-A SaaS dashboard for tracking digital marketing campaigns, creator marketing, and content production. Features real-time analytics powered by PostgreSQL with social media link scraping to extract engagement data.
+A simplified SaaS dashboard for tracking digital marketing campaigns for songs. Create campaigns linked to songs, add social media post links, track engagement data, and view performance metrics.
 
 ## Tech Stack
 - **Frontend**: React + TypeScript + Vite
 - **Styling**: Tailwind CSS + shadcn/ui components
-- **Charts**: Recharts
 - **Database**: PostgreSQL (Replit built-in)
 - **ORM**: Drizzle ORM
 - **API**: Express.js REST API
@@ -15,19 +14,13 @@ A SaaS dashboard for tracking digital marketing campaigns, creator marketing, an
 ```
 client/
   src/
-    components/       # Reusable UI components
+    components/
       ui/             # shadcn/ui base components
-      KPICard.tsx     # Metric display cards
-      PerformanceChart.tsx  # Line chart for trends
-      CreativeStatusChart.tsx  # Pie chart for task status
-      CampaignTable.tsx  # Campaign data table
-      EditingTaskCard.tsx  # Task cards
-      AddCampaignModal.tsx  # New campaign form
-      SocialLinksSection.tsx  # Social media link tracking
+      AddCampaignModal.tsx  # Create new campaign
     hooks/
-      useCampaigns.ts # React Query hooks for campaigns, tasks, and social links
+      useCampaigns.ts # React Query hooks
     pages/
-      Dashboard.tsx   # Main dashboard page
+      Dashboard.tsx   # Main dashboard with all functionality
 server/
   db.ts             # Database connection
   storage.ts        # Data access layer
@@ -38,46 +31,49 @@ shared/
 ```
 
 ## Database Schema
-- `campaigns` - Marketing campaign data with metrics
-- `editing_tasks` - Creative production task tracking
-- `social_links` - Social media posts with scraped engagement data
+
+### campaigns
+- `id` - Primary key
+- `name` - Campaign name
+- `songTitle` - Song being promoted
+- `songArtist` - Artist name (optional)
+- `status` - Active/Completed
+- `createdAt` - Timestamp
+
+### social_links
+- `id` - Primary key
+- `campaignId` - Foreign key to campaigns
+- `url` - Social media post URL
+- `platform` - TikTok/Instagram/YouTube/Twitter/Facebook
+- `views`, `likes`, `comments`, `shares` - Engagement metrics
+- `status` - pending/scraping/scraped/error
+- `lastScrapedAt` - When data was last scraped
 
 ## API Endpoints
-- `GET /api/campaigns` - Get all campaigns with computed ROI/CPA
+- `GET /api/campaigns` - Get all campaigns with aggregated stats
 - `POST /api/campaigns` - Create new campaign
-- `GET /api/editing-tasks` - Get all editing tasks
-- `POST /api/editing-tasks` - Create new editing task
-- `GET /api/social-links` - Get all social links with engagement data
+- `GET /api/social-links` - Get all social links
 - `POST /api/social-links` - Add new social link (triggers scraping)
 - `POST /api/social-links/:id/rescrape` - Rescrape engagement data
 
 ## Features
-- Real-time campaign metrics (ROI, CPA, engagement)
-- Performance trend visualization
-- Creative production status tracking
-- Sortable/filterable campaign table
-- Add new campaigns via modal form
-- **Social media link scraping** - Add TikTok, Instagram, YouTube, Twitter, or Facebook links to extract views, likes, comments, and shares
-- Automatic data seeding for new databases
+1. **Create Campaigns** - Name + Song title + Artist
+2. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs
+3. **Track Engagement** - Automatic scraping of views, likes, comments, shares
+4. **Dashboard** - Overview of total views, engagement, posts, and active campaigns
+5. **Per-Campaign Stats** - See aggregated engagement for each campaign
 
 ## Social Media Scraping
-Supported platforms:
+The scraper attempts to extract engagement data from supported platforms:
 - TikTok
 - Instagram
 - YouTube
 - Twitter/X
 - Facebook
 
-The scraper extracts:
-- Views/Plays
-- Likes
-- Comments
-- Shares
-- Engagement rate
-
-Note: Some platforms may block scraping or require authentication. The scraper will show an error status if unable to extract data.
+Note: Some platforms block scraping. Links will show "Error" status if scraping fails.
 
 ## Recent Changes
-- 2025-12-11: Added social media link scraping feature
-- 2025-12-11: Switched from Firebase to Replit built-in PostgreSQL database
-- 2025-12-11: Initial implementation with API routes and React Query hooks
+- 2025-12-11: Simplified app to focus on core campaign + social link tracking
+- 2025-12-11: Removed editing tasks and complex KPIs
+- 2025-12-11: New clean dashboard UI with campaign cards
