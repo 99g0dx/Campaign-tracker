@@ -140,6 +140,17 @@ export async function registerRoutes(
               status: "scraped",
               lastScrapedAt: new Date(),
             });
+            
+            // Save engagement snapshot for history tracking
+            const totalEngagement = (result.data.likes || 0) + (result.data.comments || 0) + (result.data.shares || 0);
+            await storage.createEngagementSnapshot({
+              socialLinkId: link.id,
+              views: result.data.views || 0,
+              likes: result.data.likes || 0,
+              comments: result.data.comments || 0,
+              shares: result.data.shares || 0,
+              totalEngagement,
+            });
           } else {
             await storage.updateSocialLink(link.id, {
               status: "error",
@@ -189,6 +200,18 @@ export async function registerRoutes(
           status: "scraped",
           lastScrapedAt: new Date(),
         });
+        
+        // Save engagement snapshot for history tracking
+        const totalEngagement = (result.data.likes || 0) + (result.data.comments || 0) + (result.data.shares || 0);
+        await storage.createEngagementSnapshot({
+          socialLinkId: id,
+          views: result.data.views || 0,
+          likes: result.data.likes || 0,
+          comments: result.data.comments || 0,
+          shares: result.data.shares || 0,
+          totalEngagement,
+        });
+        
         res.json(updated);
       } else {
         await storage.updateSocialLink(id, {
@@ -200,6 +223,27 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Failed to rescrape social link:", error);
       res.status(500).json({ error: "Failed to rescrape social link" });
+    }
+  });
+
+  // Get campaign engagement history for charts
+  app.get("/api/campaigns/:id/engagement-history", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+      
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      
+      const history = await storage.getCampaignEngagementHistory(id);
+      res.json(history);
+    } catch (error) {
+      console.error("Failed to fetch engagement history:", error);
+      res.status(500).json({ error: "Failed to fetch engagement history" });
     }
   });
 
@@ -253,6 +297,17 @@ export async function registerRoutes(
               ...result.data,
               status: "scraped",
               lastScrapedAt: new Date(),
+            });
+            
+            // Save engagement snapshot for history tracking
+            const totalEngagement = (result.data.likes || 0) + (result.data.comments || 0) + (result.data.shares || 0);
+            await storage.createEngagementSnapshot({
+              socialLinkId: id,
+              views: result.data.views || 0,
+              likes: result.data.likes || 0,
+              comments: result.data.comments || 0,
+              shares: result.data.shares || 0,
+              totalEngagement,
             });
           } else {
             await storage.updateSocialLink(id, {
