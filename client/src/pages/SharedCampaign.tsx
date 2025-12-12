@@ -122,6 +122,7 @@ export default function SharedCampaign() {
   const [verifying, setVerifying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SharedData | null>(null);
+  const [selectedTimeWindow, setSelectedTimeWindow] = useState("24h");
 
   useEffect(() => {
     if (!slug) return;
@@ -236,7 +237,6 @@ export default function SharedCampaign() {
   }
 
   const { campaign, socialLinks, engagementHistory, engagementWindows } = data;
-  const [selectedTimeWindow, setSelectedTimeWindow] = useState("24h");
 
   const totalViews = socialLinks.reduce((sum, l) => sum + (l.views || 0), 0);
   const totalLikes = socialLinks.reduce((sum, l) => sum + (l.likes || 0), 0);
