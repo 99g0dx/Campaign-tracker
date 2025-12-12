@@ -135,14 +135,14 @@ The scraper uses Apify API for reliable engagement data extraction:
 ### Platform Support Status
 | Platform | Status | Notes |
 |----------|--------|-------|
-| TikTok | Working | Apify clockworks/tiktok-scraper |
+| TikTok | Working | Apify apidojo/tiktok-scraper (98% success rate) |
 | Instagram | Working | Apify apify/instagram-scraper |
 | YouTube | Working | Direct HTML parsing (views, likes, comments) |
 | Twitter/X | Limited | Syndication API (may require paid access) |
 | Facebook | Blocked | Authentication required |
 
 ### Technical Details
-- **TikTok**: Uses `clockworks~tiktok-scraper` Apify actor for reliable data extraction
+- **TikTok**: Uses `clockworks~tiktok-video-scraper` Apify actor - specifically designed for single video URLs
 - **Instagram**: Uses `apify~instagram-scraper` Apify actor for posts and reels
 - **YouTube**: Direct HTML parsing extracts viewCount, likeCount from page
 - **Twitter/X**: Syndication API may work for some tweets

@@ -94,7 +94,8 @@ async function scrapeTikTokWithApify(url: string, postId: string | null): Promis
   }
 
   try {
-    const actorId = "clockworks~tiktok-scraper";
+    // Using clockworks/tiktok-video-scraper - specifically designed for single video URLs
+    const actorId = "clockworks~tiktok-video-scraper";
     const apiUrl = `https://api.apify.com/v2/acts/${actorId}/run-sync-get-dataset-items?token=${APIFY_API_TOKEN}`;
     
     const response = await fetch(apiUrl, {
@@ -103,11 +104,9 @@ async function scrapeTikTokWithApify(url: string, postId: string | null): Promis
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        postUrls: [url],
-        resultsPerPage: 1,
-        shouldDownloadCovers: false,
+        postURLs: [url],
         shouldDownloadVideos: false,
-        shouldDownloadSubtitles: false,
+        shouldDownloadCovers: false,
       }),
     });
 
@@ -145,8 +144,9 @@ async function scrapeTikTokWithApify(url: string, postId: string | null): Promis
       };
     }
 
-    const views = video.playCount || 0;
-    const likes = video.diggCount || 0;
+    // clockworks video scraper fields: playCount/plays, diggCount/hearts, commentCount, shareCount
+    const views = video.playCount || video.plays || 0;
+    const likes = video.diggCount || video.hearts || 0;
     const comments = video.commentCount || 0;
     const shares = video.shareCount || 0;
 
@@ -163,7 +163,7 @@ async function scrapeTikTokWithApify(url: string, postId: string | null): Promis
         engagementRate: Math.round(engagementRate * 100) / 100,
         postId: postId || video.id || undefined,
       },
-      note: "Data scraped via Apify",
+      note: "Data scraped via Apify (clockworks video scraper)",
     };
   } catch (error) {
     console.error("Apify TikTok scraping error:", error);
