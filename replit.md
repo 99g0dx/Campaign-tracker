@@ -72,6 +72,15 @@ shared/
 - `resetTokenExpiresAt` - Token expiration (1 hour from creation)
 - `createdAt`, `updatedAt` - Timestamps
 
+### creators
+- `id` - Primary key
+- `ownerId` - Foreign key to users (scopes creators to user)
+- `name` - Creator display name
+- `handle` - Social media handle
+- `platform` - Primary platform (optional)
+- `notes` - Additional notes (optional)
+- `createdAt` - Timestamp
+
 ## API Endpoints
 
 ### Campaign Endpoints
@@ -94,6 +103,16 @@ shared/
 - `POST /api/auth/change-password` - Change existing password (authenticated, requires current password)
 - `POST /api/auth/forgot-password` - Request password reset email (public)
 - `POST /api/auth/reset-password` - Reset password with valid token (public)
+
+### CSV Import Endpoints
+- `POST /api/campaigns/:id/import-posts` - Import posts from CSV file (multipart, 5MB limit)
+  - CSV columns: `creator_name`, `handle`, `url`, `status` (pending/briefed/active/done)
+  - Validates postStatus enum values, defaults to "pending" for invalid values
+
+### Creator Database Endpoints
+- `GET /api/creators` - Get all creators for current user
+- `GET /api/creators/search?q=query` - Search creators by name/handle (ILIKE)
+- `POST /api/creators/import` - Import creators from CSV (columns: name, handle, platform, notes)
 
 ## Features
 1. **User Authentication** - Log in with Replit Auth (Google, GitHub, or email)
@@ -134,6 +153,9 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Added CSV import for campaign posts with postStatus validation and 5MB file size limit
+- 2025-12-12: Added creators database with search functionality and CreatorSelect component
+- 2025-12-12: Added metric toggle checkboxes to SharedCampaign engagement charts
 - 2025-12-12: Added password management - change password on Profile page, set password for OAuth users, forgot/reset password via email with secure token-based recovery
 - 2025-12-12: Enhanced shared campaigns with engagement time windows breakdown (24hrs, 72hrs, 7/30/60/90 days) and creator status badges
 - 2025-12-12: Added ForgotPassword and ResetPassword pages with secure token validation and auto-expiry
