@@ -20,6 +20,16 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Table,
   TableBody,
   TableCell,
@@ -48,6 +58,7 @@ import {
   Download,
   Lock,
   Upload,
+  Trash2,
 } from "lucide-react";
 import ShareCampaignModal from "@/components/ShareCampaignModal";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -58,6 +69,7 @@ import {
   useRescrapeSocialLink,
   useRescrapeAllCampaignLinks,
   useUpdateSocialLink,
+  useDeleteSocialLink,
   useUpdateCampaignStatus,
   useCampaignEngagementHistory,
   type SocialLink,
@@ -528,6 +540,7 @@ export default function CampaignDetail() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
   const [importing, setImporting] = useState(false);
+  const [linkToDelete, setLinkToDelete] = useState<SocialLink | null>(null);
   const [visibleMetrics, setVisibleMetrics] = useState<MetricVisibility>({
     views: true,
     likes: true,
@@ -539,6 +552,7 @@ export default function CampaignDetail() {
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
   const { data: engagementHistory, isLoading: historyLoading } = useCampaignEngagementHistory(campaignId || 0);
   const { mutate: updateLink } = useUpdateSocialLink();
+  const { mutate: deleteLink, isPending: isDeleting } = useDeleteSocialLink();
   const { mutate: rescrape, isPending: isRescraping } = useRescrapeSocialLink();
   const { mutate: rescrapeAll, isPending: isScrapingAll } = useRescrapeAllCampaignLinks();
   const { mutate: updateCampaignStatus } = useUpdateCampaignStatus();
@@ -665,6 +679,26 @@ export default function CampaignDetail() {
 
   const handleStatusChange = (linkId: number, newStatus: PostStatus) => {
     updateLink({ id: linkId, postStatus: newStatus });
+  };
+
+  const handleDeleteCreator = () => {
+    if (!linkToDelete) return;
+    deleteLink(linkToDelete.id, {
+      onSuccess: () => {
+        toast({
+          title: "Creator removed",
+          description: `${linkToDelete.creatorName || "Creator"} has been removed from this campaign`,
+        });
+        setLinkToDelete(null);
+      },
+      onError: (error: Error) => {
+        toast({
+          title: "Failed to remove creator",
+          description: error.message,
+          variant: "destructive",
+        });
+      },
+    });
   };
 
   if (campaignsLoading || linksLoading) {
@@ -1153,6 +1187,15 @@ export default function CampaignDetail() {
                               >
                                 <Pencil className="h-4 w-4" />
                               </Button>
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                onClick={() => setLinkToDelete(link)}
+                                data-testid={`button-delete-${link.id}`}
+                                className="text-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
                               {isPlaceholder ? (
                                 <Button
                                   size="sm"
@@ -1219,6 +1262,36 @@ export default function CampaignDetail() {
         open={shareModalOpen}
         onOpenChange={setShareModalOpen}
       />
+
+      <AlertDialog open={!!linkToDelete} onOpenChange={(open) => !open && setLinkToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove Creator</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to remove "{linkToDelete?.creatorName || "this creator"}" from this campaign? 
+              This will delete all associated engagement data and cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={handleDeleteCreator}
+              disabled={isDeleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {isDeleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Removing...
+                </>
+              ) : (
+                "Remove"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

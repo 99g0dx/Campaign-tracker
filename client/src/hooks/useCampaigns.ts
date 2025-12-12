@@ -134,6 +134,19 @@ export function useUpdateSocialLink() {
   });
 }
 
+export function useDeleteSocialLink() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiRequest("DELETE", `/api/social-links/${id}`);
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+    },
+  });
+}
+
 export function useRescrapeSocialLink() {
   return useMutation({
     mutationFn: async (id: number) => {

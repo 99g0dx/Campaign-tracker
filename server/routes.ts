@@ -460,6 +460,31 @@ export async function registerRoutes(
     }
   });
 
+  // Delete social link (remove creator from campaign)
+  app.delete("/api/social-links/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid link ID" });
+      }
+
+      const link = await storage.getSocialLink(id);
+      if (!link) {
+        return res.status(404).json({ error: "Social link not found" });
+      }
+
+      const deleted = await storage.deleteSocialLink(id);
+      if (deleted) {
+        res.json({ success: true, message: "Creator removed from campaign" });
+      } else {
+        res.status(500).json({ error: "Failed to delete social link" });
+      }
+    } catch (error) {
+      console.error("Failed to delete social link:", error);
+      res.status(500).json({ error: "Failed to delete social link" });
+    }
+  });
+
   // ==================== CAMPAIGN SHARING ROUTES ====================
   
   // Enable or update share settings for a campaign

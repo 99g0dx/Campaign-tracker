@@ -90,6 +90,7 @@ shared/
 - `GET /api/social-links` - Get all social links
 - `POST /api/social-links` - Add new social link with optional creatorName (triggers scraping)
 - `PATCH /api/social-links/:id` - Update post status, creator name, URL, and engagement metrics (views, likes, comments, shares)
+- `DELETE /api/social-links/:id` - Remove creator/post from campaign (authenticated, cascades to engagement history)
 - `POST /api/social-links/:id/rescrape` - Rescrape engagement data
 
 ### Profile/KYC Endpoints
@@ -153,6 +154,7 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Added delete creator functionality - users can remove creators/posts from campaigns with confirmation dialog
 - 2025-12-12: Enhanced Add Creator modal with autocomplete search - creators added to any campaign are now searchable when adding new creators
 - 2025-12-12: Added CSV import for campaign posts with postStatus validation and 5MB file size limit
 - 2025-12-12: Added creators database with search functionality and CreatorSelect component

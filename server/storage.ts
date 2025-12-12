@@ -45,6 +45,7 @@ export interface IStorage {
   getSocialLink(id: number): Promise<SocialLink | undefined>;
   createSocialLink(link: InsertSocialLink): Promise<SocialLink>;
   updateSocialLink(id: number, data: Partial<SocialLink>): Promise<SocialLink | undefined>;
+  deleteSocialLink(id: number): Promise<boolean>;
   
   // Engagement History
   createEngagementSnapshot(data: InsertEngagementHistory): Promise<EngagementHistory>;
@@ -252,6 +253,18 @@ export class DatabaseStorage implements IStorage {
       .where(eq(socialLinks.id, id))
       .returning();
     return updated;
+  }
+
+  async deleteSocialLink(id: number): Promise<boolean> {
+    // First delete related engagement history (foreign key constraint)
+    await db.delete(engagementHistory)
+      .where(eq(engagementHistory.socialLinkId, id));
+    
+    // Then delete the social link
+    const deleted = await db.delete(socialLinks)
+      .where(eq(socialLinks.id, id))
+      .returning();
+    return deleted.length > 0;
   }
 
   async createEngagementSnapshot(data: InsertEngagementHistory): Promise<EngagementHistory> {
