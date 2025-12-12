@@ -23,12 +23,13 @@ import {
 } from "@shared/schema";
 
 export interface IStorage {
-  // User operations (required for Replit Auth)
+  // User operations
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByResetToken(token: string): Promise<User | undefined>;
+  createUser(userData: { email: string; passwordHash: string; fullName?: string; phone?: string; verificationCode?: string; verificationExpiresAt?: Date }): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
-  updateUserProfile(id: string, data: { firstName?: string; lastName?: string; phone?: string; email?: string; verificationCode?: string | null; verificationExpiresAt?: Date | null; isVerified?: boolean }): Promise<User | undefined>;
+  updateUserProfile(id: string, data: { fullName?: string; firstName?: string; lastName?: string; phone?: string; email?: string; verificationCode?: string | null; verificationExpiresAt?: Date | null; isVerified?: boolean }): Promise<User | undefined>;
   updateUserPassword(id: string, passwordHash: string): Promise<User | undefined>;
   updateUserResetToken(id: string, resetToken: string | null, resetTokenExpiresAt: Date | null): Promise<User | undefined>;
   
@@ -78,9 +79,22 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  // User operations (required for Replit Auth)
+  // User operations
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async createUser(userData: { email: string; passwordHash: string; fullName?: string; phone?: string; verificationCode?: string; verificationExpiresAt?: Date }): Promise<User> {
+    const [user] = await db.insert(users).values({
+      email: userData.email.toLowerCase(),
+      passwordHash: userData.passwordHash,
+      fullName: userData.fullName || null,
+      phone: userData.phone || null,
+      verificationCode: userData.verificationCode || null,
+      verificationExpiresAt: userData.verificationExpiresAt || null,
+      isVerified: false,
+    }).returning();
     return user;
   }
 

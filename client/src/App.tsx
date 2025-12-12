@@ -7,7 +7,9 @@ import { useAuth } from "@/hooks/useAuth";
 import Dashboard from "@/pages/Dashboard";
 import CampaignDetail from "@/pages/CampaignDetail";
 import Landing from "@/pages/Landing";
-import Onboarding from "@/pages/Onboarding";
+import Login from "@/pages/Login";
+import Signup from "@/pages/Signup";
+import VerifyAccount from "@/pages/VerifyAccount";
 import Profile from "@/pages/Profile";
 import SharedCampaign from "@/pages/SharedCampaign";
 import ForgotPassword from "@/pages/ForgotPassword";
@@ -30,6 +32,8 @@ function Router() {
     return (
       <Switch>
         <Route path="/" component={Landing} />
+        <Route path="/login" component={Login} />
+        <Route path="/signup" component={Signup} />
         <Route path="/share/:slug" component={SharedCampaign} />
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
@@ -41,8 +45,8 @@ function Router() {
   if (!user?.isVerified) {
     return (
       <Switch>
-        <Route path="/onboarding" component={Onboarding} />
-        <Route>{() => <Redirect to="/onboarding" />}</Route>
+        <Route path="/verify" component={VerifyAccount} />
+        <Route>{() => <Redirect to="/verify" />}</Route>
       </Switch>
     );
   }
@@ -54,7 +58,9 @@ function Router() {
       <Route path="/campaign/:id" component={CampaignDetail} />
       <Route path="/profile" component={Profile} />
       <Route path="/share/:slug" component={SharedCampaign} />
-      <Route path="/onboarding">{() => <Redirect to="/" />}</Route>
+      <Route path="/login">{() => <Redirect to="/" />}</Route>
+      <Route path="/signup">{() => <Redirect to="/" />}</Route>
+      <Route path="/verify">{() => <Redirect to="/" />}</Route>
       <Route component={NotFound} />
     </Switch>
   );

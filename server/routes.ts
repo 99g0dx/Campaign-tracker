@@ -4,11 +4,11 @@ import { storage } from "./storage";
 import { insertCampaignSchema, insertSocialLinkSchema, postStatusOptions, insertTeamMemberSchema } from "@shared/schema";
 import { z } from "zod";
 import { scrapeSocialLink, getPlatformFromUrl } from "./scraper";
-import { setupAuth, isAuthenticated } from "./replitAuth";
+import { setupSession, requireUser } from "./session";
+import authRoutes from "./authRoutes";
 import profileRoutes from "./profileRoutes";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
-import { sendPasswordResetEmail } from "./email";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
 
@@ -89,17 +89,20 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  // Setup authentication (includes /auth/login, /auth/logout, /auth/callback, /auth/user)
-  await setupAuth(app);
+  // Setup session-based authentication
+  setupSession(app);
+
+  // Auth routes (signup, login, logout, verify, forgot-password, reset-password)
+  app.use("/api/auth", authRoutes);
 
   // Profile routes for KYC verification (requires authentication)
-  app.use("/api/profile", isAuthenticated, profileRoutes);
+  app.use("/api/profile", requireUser, profileRoutes);
 
   // Seed data on startup
   await storage.seedDataIfEmpty();
 
   // Get all campaigns with aggregated stats
-  app.get("/api/campaigns", isAuthenticated, async (_req, res) => {
+  app.get("/api/campaigns", requireUser, async (_req, res) => {
     try {
       const campaigns = await storage.getCampaignsWithStats();
       res.json(campaigns);
@@ -110,7 +113,7 @@ export async function registerRoutes(
   });
 
   // Get a single campaign
-  app.get("/api/campaigns/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns/:id", requireUser, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -128,7 +131,7 @@ export async function registerRoutes(
   });
 
   // Create a new campaign
-  app.post("/api/campaigns", isAuthenticated, async (req, res) => {
+  app.post("/api/campaigns", requireUser, async (req, res) => {
     try {
       const parsed = insertCampaignSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -143,7 +146,7 @@ export async function registerRoutes(
   });
 
   // Update campaign status
-  app.patch("/api/campaigns/:id/status", isAuthenticated, async (req, res) => {
+  app.patch("/api/campaigns/:id/status", requireUser, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -171,7 +174,7 @@ export async function registerRoutes(
   });
 
   // Get all social links
-  app.get("/api/social-links", isAuthenticated, async (_req, res) => {
+  app.get("/api/social-links", requireUser, async (_req, res) => {
     try {
       const links = await storage.getSocialLinks();
       res.json(links);
@@ -182,7 +185,7 @@ export async function registerRoutes(
   });
 
   // Get social links for a specific campaign
-  app.get("/api/campaigns/:campaignId/social-links", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns/:campaignId/social-links", requireUser, async (req, res) => {
     try {
       const campaignId = parseInt(req.params.campaignId, 10);
       if (isNaN(campaignId)) {
@@ -197,7 +200,7 @@ export async function registerRoutes(
   });
 
   // Add a new social link and scrape data
-  app.post("/api/social-links", isAuthenticated, async (req, res) => {
+  app.post("/api/social-links", requireUser, async (req, res) => {
     try {
       const urlSchema = z.object({
         url: z.string(),
@@ -290,7 +293,7 @@ export async function registerRoutes(
   });
 
   // Rescrape a social link
-  app.post("/api/social-links/:id/rescrape", isAuthenticated, async (req, res) => {
+  app.post("/api/social-links/:id/rescrape", requireUser, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -341,7 +344,7 @@ export async function registerRoutes(
   });
 
   // Rescrape all social links for a campaign
-  app.post("/api/campaigns/:id/rescrape-all", isAuthenticated, async (req, res) => {
+  app.post("/api/campaigns/:id/rescrape-all", requireUser, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -408,7 +411,7 @@ export async function registerRoutes(
   });
 
   // Get campaign engagement history for charts
-  app.get("/api/campaigns/:id/engagement-history", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns/:id/engagement-history", requireUser, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -429,7 +432,7 @@ export async function registerRoutes(
   });
 
   // Update social link (post status, creator name, url)
-  app.patch("/api/social-links/:id", isAuthenticated, async (req, res) => {
+  app.patch("/api/social-links/:id", requireUser, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -527,7 +530,7 @@ export async function registerRoutes(
   });
 
   // Delete social link (remove creator from campaign)
-  app.delete("/api/social-links/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/social-links/:id", requireUser, async (req: any, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -554,7 +557,7 @@ export async function registerRoutes(
   // ==================== CAMPAIGN SHARING ROUTES ====================
   
   // Enable or update share settings for a campaign
-  app.post("/api/campaigns/:id/share", isAuthenticated, async (req, res) => {
+  app.post("/api/campaigns/:id/share", requireUser, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -616,7 +619,7 @@ export async function registerRoutes(
   });
 
   // Get share status for a campaign
-  app.get("/api/campaigns/:id/share", isAuthenticated, async (req, res) => {
+  app.get("/api/campaigns/:id/share", requireUser, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -790,7 +793,7 @@ export async function registerRoutes(
   // ==================== PASSWORD MANAGEMENT ROUTES ====================
   
   // Check if user has password set
-  app.get("/api/auth/has-password", isAuthenticated, async (req: any, res) => {
+  app.get("/api/auth/has-password", requireUser, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -806,7 +809,7 @@ export async function registerRoutes(
   });
 
   // Change password (logged-in user)
-  app.post("/api/auth/change-password", isAuthenticated, async (req: any, res) => {
+  app.post("/api/auth/change-password", requireUser, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -846,7 +849,7 @@ export async function registerRoutes(
   });
 
   // Set password (for users without password - first time setup)
-  app.post("/api/auth/set-password", isAuthenticated, async (req: any, res) => {
+  app.post("/api/auth/set-password", requireUser, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -981,7 +984,7 @@ export async function registerRoutes(
   // ==================== TEAM MEMBERS ROUTES ====================
   
   // Get team members for current user
-  app.get("/api/team-members", isAuthenticated, async (req: any, res) => {
+  app.get("/api/team-members", requireUser, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -997,7 +1000,7 @@ export async function registerRoutes(
   });
 
   // Add team member
-  app.post("/api/team-members", isAuthenticated, async (req: any, res) => {
+  app.post("/api/team-members", requireUser, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -1028,7 +1031,7 @@ export async function registerRoutes(
   });
 
   // Remove team member
-  app.delete("/api/team-members/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/team-members/:id", requireUser, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -1054,7 +1057,7 @@ export async function registerRoutes(
   // ==================== CSV IMPORT ROUTES ====================
 
   // Import posts from CSV for a campaign
-  app.post("/api/campaigns/:id/import-posts", isAuthenticated, upload.single("file"), async (req: any, res) => {
+  app.post("/api/campaigns/:id/import-posts", requireUser, upload.single("file"), async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -1123,7 +1126,7 @@ export async function registerRoutes(
   // ==================== CREATORS DATABASE ROUTES ====================
 
   // Get all creators for the current user
-  app.get("/api/creators", isAuthenticated, async (req: any, res) => {
+  app.get("/api/creators", requireUser, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -1139,7 +1142,7 @@ export async function registerRoutes(
   });
 
   // Search creators by name or handle
-  app.get("/api/creators/search", isAuthenticated, async (req: any, res) => {
+  app.get("/api/creators/search", requireUser, async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {
@@ -1160,7 +1163,7 @@ export async function registerRoutes(
   });
 
   // Search creator names from existing social links (autocomplete for Add Creator modal)
-  app.get("/api/social-links/creator-names/search", isAuthenticated, async (req: any, res) => {
+  app.get("/api/social-links/creator-names/search", requireUser, async (req: any, res) => {
     try {
       const query = (req.query.q as string)?.trim();
       if (!query || query.length < 2) {
@@ -1176,7 +1179,7 @@ export async function registerRoutes(
   });
 
   // Import creators from CSV
-  app.post("/api/creators/import", isAuthenticated, upload.single("file"), async (req: any, res) => {
+  app.post("/api/creators/import", requireUser, upload.single("file"), async (req: any, res) => {
     try {
       const userId = req.user?.id;
       if (!userId) {

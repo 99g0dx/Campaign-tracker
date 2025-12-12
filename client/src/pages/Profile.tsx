@@ -172,10 +172,10 @@ export default function Profile() {
       return;
     }
 
-    if (newPassword.length < 6) {
+    if (newPassword.length < 8) {
       toast({
         title: "Password too short",
-        description: "Password must be at least 6 characters.",
+        description: "Password must be at least 8 characters.",
         variant: "destructive",
       });
       return;
@@ -220,11 +220,10 @@ export default function Profile() {
     }
   }
 
-  const initials = [user.firstName, user.lastName]
-    .filter(Boolean)
-    .map((n) => n?.[0])
-    .join("")
-    .toUpperCase() || user.email?.[0]?.toUpperCase() || "U";
+  const displayName = user.fullName || [user.firstName, user.lastName].filter(Boolean).join(" ") || "";
+  const initials = displayName 
+    ? displayName.split(" ").map((n) => n?.[0]).join("").toUpperCase().slice(0, 2)
+    : user.email?.[0]?.toUpperCase() || "U";
 
   return (
     <div className="min-h-screen bg-background">
@@ -257,13 +256,9 @@ export default function Profile() {
 
               <div className="flex-1 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground text-sm">First Name</Label>
-                    <p className="font-medium" data-testid="text-first-name">{user.firstName || "-"}</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-muted-foreground text-sm">Last Name</Label>
-                    <p className="font-medium" data-testid="text-last-name">{user.lastName || "-"}</p>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label className="text-muted-foreground text-sm">Full Name</Label>
+                    <p className="font-medium" data-testid="text-full-name">{displayName || "-"}</p>
                   </div>
                   <div className="space-y-2">
                     <Label className="text-muted-foreground text-sm flex items-center gap-1">

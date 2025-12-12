@@ -59,10 +59,10 @@ export default function ForgotPassword() {
                 If there's an account with that email, a reset link has been sent. 
                 Please check your inbox.
               </p>
-              <Link href="/">
+              <Link href="/login">
                 <Button variant="outline" className="mt-4" data-testid="button-back-home">
                   <ArrowLeft className="h-4 w-4 mr-2" />
-                  Back to Home
+                  Back to Login
                 </Button>
               </Link>
             </div>
@@ -96,7 +96,7 @@ export default function ForgotPassword() {
               </Button>
 
               <div className="text-center">
-                <Link href="/">
+                <Link href="/login">
                   <Button type="button" variant="ghost" className="text-sm" data-testid="link-back">
                     <ArrowLeft className="h-3 w-3 mr-1" />
                     Back to login

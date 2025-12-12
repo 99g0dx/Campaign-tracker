@@ -105,10 +105,11 @@ export const sessions = pgTable(
   }
 );
 
-// User storage table for Replit Auth with KYC verification
+// User storage table for local email/password authentication
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   email: varchar("email").unique(),
+  fullName: varchar("full_name"),
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   phone: varchar("phone"),

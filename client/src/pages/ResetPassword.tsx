@@ -138,7 +138,7 @@ export default function ResetPassword() {
             </CardDescription>
           </CardHeader>
           <CardContent className="text-center">
-            <Link href="/">
+            <Link href="/login">
               <Button data-testid="button-go-login">Go to Login</Button>
             </Link>
           </CardContent>

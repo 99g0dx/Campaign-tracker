@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { 
@@ -8,23 +9,27 @@ import {
   Zap,
   Shield,
 } from "lucide-react";
-import { useAuth } from "@/hooks/useAuth";
 
 export default function Landing() {
-  const { login, isLoading } = useAuth();
-
   return (
     <div className="min-h-screen bg-background">
       <header className="border-b">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
+        <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2">
             <Music className="h-6 w-6 text-primary" />
             <span className="text-xl font-bold">Campaign Tracker</span>
           </div>
           <div className="flex items-center gap-3">
-            <Button onClick={login} disabled={isLoading} data-testid="button-login">
-              {isLoading ? "Redirecting..." : "Log In"}
-            </Button>
+            <Link href="/login">
+              <Button variant="ghost" data-testid="button-login">
+                Log In
+              </Button>
+            </Link>
+            <Link href="/signup">
+              <Button data-testid="button-signup">
+                Sign Up
+              </Button>
+            </Link>
           </div>
         </div>
       </header>
@@ -40,9 +45,11 @@ export default function Landing() {
               Get real-time analytics to measure your music promotion success.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button size="lg" onClick={login} disabled={isLoading} data-testid="button-get-started">
-                {isLoading ? "Redirecting..." : "Get Started Free"}
-              </Button>
+              <Link href="/signup">
+                <Button size="lg" data-testid="button-get-started">
+                  Get Started Free
+                </Button>
+              </Link>
             </div>
           </div>
         </section>
@@ -125,9 +132,11 @@ export default function Landing() {
                 <p className="text-muted-foreground mb-6">
                   Start tracking your song marketing campaigns today.
                 </p>
-                <Button size="lg" onClick={login} disabled={isLoading} data-testid="button-start-tracking">
-                  {isLoading ? "Redirecting..." : "Start Tracking"}
-                </Button>
+                <Link href="/signup">
+                  <Button size="lg" data-testid="button-start-tracking">
+                    Start Tracking
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>

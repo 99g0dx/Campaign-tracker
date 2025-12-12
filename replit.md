@@ -9,7 +9,7 @@ A simplified SaaS dashboard for tracking digital marketing campaigns for songs. 
 - **Database**: PostgreSQL (Replit built-in)
 - **ORM**: Drizzle ORM
 - **API**: Express.js REST API
-- **Authentication**: Replit Auth (OpenID Connect)
+- **Authentication**: Local email/password with session cookies
 
 ## Project Structure
 ```
@@ -20,19 +20,24 @@ client/
       AddCampaignModal.tsx  # Create new campaign
     hooks/
       useCampaigns.ts # React Query hooks
-      useAuth.ts      # Authentication hook
+      useAuth.ts      # Authentication hook (local email/password)
     pages/
       Dashboard.tsx     # Main dashboard with campaign cards
       CampaignDetail.tsx # Individual campaign page with creators table
-      Onboarding.tsx    # KYC verification page
+      Login.tsx         # Email/password login page
+      Signup.tsx        # User registration page
+      VerifyAccount.tsx # Email verification page
       Landing.tsx       # Landing page for unauthenticated users
+      Profile.tsx       # User profile and settings
+      ForgotPassword.tsx # Password reset request page
+      ResetPassword.tsx  # Password reset with token
 server/
   db.ts             # Database connection
   storage.ts        # Data access layer
   routes.ts         # API endpoints
   scraper.ts        # Social media engagement scraper
-  replitAuth.ts     # Replit Auth OIDC setup
-  profileRoutes.ts  # KYC verification endpoints
+  authRoutes.ts     # Local email/password auth endpoints
+  session.ts        # Express session configuration
 shared/
   schema.ts         # Drizzle schema definitions
 ```
@@ -59,15 +64,16 @@ shared/
 - `lastScrapedAt` - When data was last scraped
 
 ### users
-- `id` - Primary key (Replit user ID from OIDC sub claim)
+- `id` - Primary key (UUID)
 - `email` - User email (unique)
-- `firstName`, `lastName` - User name
-- `phone` - Phone number (for KYC)
-- `profileImageUrl` - Avatar URL from Replit
-- `isVerified` - KYC verification status (boolean)
+- `fullName` - User full name
+- `firstName`, `lastName` - User name (legacy, optional)
+- `phone` - Phone number (optional)
+- `profileImageUrl` - Avatar URL (optional)
+- `isVerified` - Email verification status (boolean)
 - `verificationCode` - 6-digit verification code
 - `verificationExpiresAt` - Code expiration timestamp
-- `passwordHash` - Bcrypt-hashed password (optional, for local auth)
+- `passwordHash` - Bcrypt-hashed password (required for local auth)
 - `resetToken` - Secure token for password reset
 - `resetTokenExpiresAt` - Token expiration (1 hour from creation)
 - `createdAt`, `updatedAt` - Timestamps
@@ -93,17 +99,19 @@ shared/
 - `DELETE /api/social-links/:id` - Remove creator/post from campaign (authenticated, cascades to engagement history)
 - `POST /api/social-links/:id/rescrape` - Rescrape engagement data
 
-### Profile/KYC Endpoints
-- `POST /api/profile/start` - Start verification (body: firstName, lastName, email, phone) - sends 6-digit code
-- `POST /api/profile/verify` - Verify code (body: code) - marks user as verified
-- `POST /api/profile/resend` - Resend verification code
-
-### Password Management Endpoints
-- `GET /api/auth/has-password` - Check if current user has password set (authenticated)
-- `POST /api/auth/set-password` - Set password for OAuth users without one (authenticated)
-- `POST /api/auth/change-password` - Change existing password (authenticated, requires current password)
-- `POST /api/auth/forgot-password` - Request password reset email (public)
-- `POST /api/auth/reset-password` - Reset password with valid token (public)
+### Auth Endpoints
+- `POST /api/auth/signup` - Create new account (body: email, password, fullName?, phone?)
+- `POST /api/auth/login` - Login (body: email, password)
+- `POST /api/auth/logout` - Logout, destroys session
+- `GET /api/auth/me` - Get current user
+- `POST /api/auth/verify` - Verify email with 6-digit code
+- `POST /api/auth/resend-code` - Resend verification code
+- `POST /api/auth/forgot-password` - Request password reset email
+- `GET /api/auth/validate-reset-token` - Validate reset token
+- `POST /api/auth/reset-password` - Reset password with token
+- `GET /api/auth/has-password` - Check if user has password set
+- `POST /api/auth/set-password` - Set password (for users without one)
+- `POST /api/auth/change-password` - Change existing password
 
 ### CSV Import Endpoints
 - `POST /api/campaigns/:id/import-posts` - Import posts from CSV file (multipart, 5MB limit)
@@ -116,8 +124,8 @@ shared/
 - `POST /api/creators/import` - Import creators from CSV (columns: name, handle, platform, notes)
 
 ## Features
-1. **User Authentication** - Log in with Replit Auth (Google, GitHub, or email)
-2. **KYC Verification** - Email verification required before accessing campaigns
+1. **User Authentication** - Local email/password authentication with session cookies
+2. **Email Verification** - 6-digit code sent to email, required before accessing campaigns
 3. **Create Campaigns** - Name + Song title + Artist
 4. **Add Social Links** - Paste TikTok, Instagram, YouTube, Twitter, or Facebook post URLs with optional creator name
 5. **Post Status Tracking** - Track workflow status per post: Pending, Briefed, Active, Done
