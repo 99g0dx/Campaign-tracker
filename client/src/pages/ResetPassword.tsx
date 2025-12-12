@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSearch, useLocation } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
 import { Lock, Loader2, CheckCircle, AlertCircle, Eye, EyeOff } from "lucide-react";
 
@@ -19,6 +20,30 @@ export default function ResetPassword() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [validating, setValidating] = useState(true);
+  const [tokenValid, setTokenValid] = useState(false);
+
+  // Validate token on page load
+  useEffect(() => {
+    async function validateToken() {
+      if (!token) {
+        setValidating(false);
+        setTokenValid(false);
+        return;
+      }
+      
+      try {
+        const res = await fetch(`/api/auth/validate-reset-token?token=${encodeURIComponent(token)}`);
+        const data = await res.json();
+        setTokenValid(data.valid);
+      } catch (err) {
+        setTokenValid(false);
+      } finally {
+        setValidating(false);
+      }
+    }
+    validateToken();
+  }, [token]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -57,7 +82,26 @@ export default function ResetPassword() {
     }
   }
 
-  if (!token) {
+  // Show loading state while validating token
+  if (validating) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
+        <Card className="w-full max-w-md">
+          <CardHeader className="text-center">
+            <Skeleton className="mx-auto h-12 w-12 rounded-full mb-2" />
+            <Skeleton className="h-6 w-48 mx-auto mb-2" />
+            <Skeleton className="h-4 w-64 mx-auto" />
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Show error if token is missing or invalid
+  if (!token || !tokenValid) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <Card className="w-full max-w-md">
@@ -65,7 +109,7 @@ export default function ResetPassword() {
             <div className="mx-auto w-12 h-12 rounded-full bg-destructive/10 flex items-center justify-center mb-2">
               <AlertCircle className="h-6 w-6 text-destructive" />
             </div>
-            <CardTitle>Invalid Reset Link</CardTitle>
+            <CardTitle data-testid="text-invalid-token">Invalid Reset Link</CardTitle>
             <CardDescription>
               This password reset link is invalid or has expired.
             </CardDescription>

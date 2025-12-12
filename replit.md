@@ -67,6 +67,9 @@ shared/
 - `isVerified` - KYC verification status (boolean)
 - `verificationCode` - 6-digit verification code
 - `verificationExpiresAt` - Code expiration timestamp
+- `passwordHash` - Bcrypt-hashed password (optional, for local auth)
+- `resetToken` - Secure token for password reset
+- `resetTokenExpiresAt` - Token expiration (1 hour from creation)
 - `createdAt`, `updatedAt` - Timestamps
 
 ## API Endpoints
@@ -84,6 +87,13 @@ shared/
 - `POST /api/profile/start` - Start verification (body: firstName, lastName, email, phone) - sends 6-digit code
 - `POST /api/profile/verify` - Verify code (body: code) - marks user as verified
 - `POST /api/profile/resend` - Resend verification code
+
+### Password Management Endpoints
+- `GET /api/auth/has-password` - Check if current user has password set (authenticated)
+- `POST /api/auth/set-password` - Set password for OAuth users without one (authenticated)
+- `POST /api/auth/change-password` - Change existing password (authenticated, requires current password)
+- `POST /api/auth/forgot-password` - Request password reset email (public)
+- `POST /api/auth/reset-password` - Reset password with valid token (public)
 
 ## Features
 1. **User Authentication** - Log in with Replit Auth (Google, GitHub, or email)
@@ -124,6 +134,9 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Added password management - change password on Profile page, set password for OAuth users, forgot/reset password via email with secure token-based recovery
+- 2025-12-12: Enhanced shared campaigns with engagement time windows breakdown (24hrs, 72hrs, 7/30/60/90 days) and creator status badges
+- 2025-12-12: Added ForgotPassword and ResetPassword pages with secure token validation and auto-expiry
 - 2025-12-12: Added campaign sharing with password protection - users can share campaigns via password-locked public links
 - 2025-12-12: Added Profile page with user details and team member management
 - 2025-12-12: Added shared campaign page with password gate for public access

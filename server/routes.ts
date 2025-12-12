@@ -776,6 +776,26 @@ export async function registerRoutes(
     }
   });
 
+  // Validate reset token (check if token is valid and not expired)
+  app.get("/api/auth/validate-reset-token", async (req, res) => {
+    try {
+      const token = req.query.token as string;
+      if (!token) {
+        return res.json({ valid: false });
+      }
+
+      const user = await storage.getUserByResetToken(token);
+      if (!user || !user.resetTokenExpiresAt || user.resetTokenExpiresAt < new Date()) {
+        return res.json({ valid: false });
+      }
+
+      res.json({ valid: true });
+    } catch (error) {
+      console.error("Failed to validate reset token:", error);
+      res.json({ valid: false });
+    }
+  });
+
   // Reset password with token
   app.post("/api/auth/reset-password", async (req, res) => {
     try {
