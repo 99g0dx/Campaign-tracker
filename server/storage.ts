@@ -7,6 +7,8 @@ import {
   users,
   teamMembers,
   creators,
+  scrapeJobs,
+  scrapeTasks,
   type Campaign,
   type InsertCampaign,
   type SocialLink,
@@ -20,6 +22,11 @@ import {
   type InsertTeamMember,
   type Creator,
   type InsertCreator,
+  type ScrapeJob,
+  type InsertScrapeJob,
+  type ScrapeTask,
+  type InsertScrapeTask,
+  type ScrapeJobWithStats,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -75,6 +82,20 @@ export interface IStorage {
   
   // Search creator names from existing social links
   searchCreatorNamesFromLinks(query: string): Promise<{ creatorName: string; platform: string }[]>;
+  
+  // Scrape jobs
+  createScrapeJob(job: InsertScrapeJob): Promise<ScrapeJob>;
+  createScrapeJobWithTasks(campaignId: number, links: SocialLink[]): Promise<{ job: ScrapeJob; tasks: ScrapeTask[] }>;
+  getScrapeJob(id: number): Promise<ScrapeJob | undefined>;
+  getScrapeJobWithStats(id: number): Promise<ScrapeJobWithStats | undefined>;
+  getActiveScrapeJobForCampaign(campaignId: number): Promise<ScrapeJob | undefined>;
+  updateScrapeJobStatus(id: number, status: string, completedAt?: Date): Promise<ScrapeJob | undefined>;
+  
+  // Scrape tasks
+  getScrapeTasksByJob(jobId: number): Promise<ScrapeTask[]>;
+  getScrapeTask(id: number): Promise<ScrapeTask | undefined>;
+  getQueuedScrapeTasks(limit?: number): Promise<ScrapeTask[]>;
+  updateScrapeTask(id: number, data: Partial<ScrapeTask>): Promise<ScrapeTask | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -454,6 +475,100 @@ export class DatabaseStorage implements IStorage {
       creatorName: r.creatorName!,
       platform: r.platform
     }));
+  }
+
+  // Scrape job operations
+  async createScrapeJob(job: InsertScrapeJob): Promise<ScrapeJob> {
+    const [newJob] = await db.insert(scrapeJobs).values(job).returning();
+    return newJob;
+  }
+
+  async createScrapeJobWithTasks(campaignId: number, links: SocialLink[]): Promise<{ job: ScrapeJob; tasks: ScrapeTask[] }> {
+    const job = await this.createScrapeJob({ campaignId, status: "queued" });
+    
+    const taskValues: InsertScrapeTask[] = links.map(link => ({
+      jobId: job.id,
+      socialLinkId: link.id,
+      url: link.url,
+      platform: link.platform,
+      status: "queued",
+      attempts: 0,
+    }));
+    
+    const tasks = await db.insert(scrapeTasks).values(taskValues).returning();
+    return { job, tasks };
+  }
+
+  async getScrapeJob(id: number): Promise<ScrapeJob | undefined> {
+    const [job] = await db.select().from(scrapeJobs).where(eq(scrapeJobs.id, id));
+    return job;
+  }
+
+  async getScrapeJobWithStats(id: number): Promise<ScrapeJobWithStats | undefined> {
+    const job = await this.getScrapeJob(id);
+    if (!job) return undefined;
+    
+    const tasks = await this.getScrapeTasksByJob(id);
+    const totalTasks = tasks.length;
+    const completedTasks = tasks.filter(t => t.status === "success" || t.status === "failed").length;
+    const successfulTasks = tasks.filter(t => t.status === "success").length;
+    const failedTasks = tasks.filter(t => t.status === "failed").length;
+    
+    return {
+      ...job,
+      totalTasks,
+      completedTasks,
+      successfulTasks,
+      failedTasks,
+    };
+  }
+
+  async getActiveScrapeJobForCampaign(campaignId: number): Promise<ScrapeJob | undefined> {
+    const [job] = await db.select()
+      .from(scrapeJobs)
+      .where(
+        and(
+          eq(scrapeJobs.campaignId, campaignId),
+          or(eq(scrapeJobs.status, "queued"), eq(scrapeJobs.status, "running"))
+        )
+      )
+      .orderBy(desc(scrapeJobs.createdAt))
+      .limit(1);
+    return job;
+  }
+
+  async updateScrapeJobStatus(id: number, status: string, completedAt?: Date): Promise<ScrapeJob | undefined> {
+    const [updated] = await db.update(scrapeJobs)
+      .set({ status, completedAt })
+      .where(eq(scrapeJobs.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Scrape task operations
+  async getScrapeTasksByJob(jobId: number): Promise<ScrapeTask[]> {
+    return await db.select().from(scrapeTasks).where(eq(scrapeTasks.jobId, jobId));
+  }
+
+  async getScrapeTask(id: number): Promise<ScrapeTask | undefined> {
+    const [task] = await db.select().from(scrapeTasks).where(eq(scrapeTasks.id, id));
+    return task;
+  }
+
+  async getQueuedScrapeTasks(limit: number = 10): Promise<ScrapeTask[]> {
+    return await db.select()
+      .from(scrapeTasks)
+      .where(eq(scrapeTasks.status, "queued"))
+      .orderBy(asc(scrapeTasks.id))
+      .limit(limit);
+  }
+
+  async updateScrapeTask(id: number, data: Partial<ScrapeTask>): Promise<ScrapeTask | undefined> {
+    const [updated] = await db.update(scrapeTasks)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(scrapeTasks.id, id))
+      .returning();
+    return updated;
   }
 
 }
