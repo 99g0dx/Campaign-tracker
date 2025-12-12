@@ -10,6 +10,8 @@ import Landing from "@/pages/Landing";
 import Onboarding from "@/pages/Onboarding";
 import Profile from "@/pages/Profile";
 import SharedCampaign from "@/pages/SharedCampaign";
+import ForgotPassword from "@/pages/ForgotPassword";
+import ResetPassword from "@/pages/ResetPassword";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -29,6 +31,8 @@ function Router() {
       <Switch>
         <Route path="/" component={Landing} />
         <Route path="/share/:slug" component={SharedCampaign} />
+        <Route path="/forgot-password" component={ForgotPassword} />
+        <Route path="/reset-password" component={ResetPassword} />
         <Route component={Landing} />
       </Switch>
     );

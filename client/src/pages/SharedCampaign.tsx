@@ -59,10 +59,19 @@ type Campaign = {
   createdAt: string;
 };
 
+type EngagementWindow = {
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+  label: string;
+};
+
 type SharedData = {
   campaign: Campaign;
   socialLinks: SocialLink[];
   engagementHistory: EngagementData[];
+  engagementWindows?: Record<string, EngagementWindow>;
 };
 
 function formatNumber(num: number | null | undefined): string {
@@ -86,6 +95,20 @@ function getPlatformColor(platform: string): string {
       return "bg-blue-600 text-white";
     default:
       return "bg-muted";
+  }
+}
+
+function getStatusBadge(status: string) {
+  switch (status?.toLowerCase()) {
+    case "active":
+      return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Active</Badge>;
+    case "done":
+      return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Done</Badge>;
+    case "briefed":
+      return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">Briefed</Badge>;
+    case "pending":
+    default:
+      return <Badge variant="secondary">Pending</Badge>;
   }
 }
 
@@ -212,12 +235,16 @@ export default function SharedCampaign() {
     );
   }
 
-  const { campaign, socialLinks, engagementHistory } = data;
+  const { campaign, socialLinks, engagementHistory, engagementWindows } = data;
+  const [selectedTimeWindow, setSelectedTimeWindow] = useState("24h");
 
   const totalViews = socialLinks.reduce((sum, l) => sum + (l.views || 0), 0);
   const totalLikes = socialLinks.reduce((sum, l) => sum + (l.likes || 0), 0);
   const totalComments = socialLinks.reduce((sum, l) => sum + (l.comments || 0), 0);
   const totalShares = socialLinks.reduce((sum, l) => sum + (l.shares || 0), 0);
+
+  const timeWindowKeys = ["24h", "72h", "7d", "30d", "60d", "90d"];
+  const selectedWindowData = engagementWindows?.[selectedTimeWindow];
 
   return (
     <div className="min-h-screen bg-background">
@@ -282,6 +309,71 @@ export default function SharedCampaign() {
             </CardContent>
           </Card>
         </div>
+
+        {engagementWindows && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Engagement Breakdown by Time Period</CardTitle>
+              <CardDescription>View engagement metrics across different time windows</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {timeWindowKeys.map((key) => (
+                  <Button
+                    key={key}
+                    variant={selectedTimeWindow === key ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setSelectedTimeWindow(key)}
+                    data-testid={`button-time-window-${key}`}
+                  >
+                    {engagementWindows[key]?.label || key}
+                  </Button>
+                ))}
+              </div>
+              
+              {selectedWindowData && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
+                  <div className="p-4 rounded-lg bg-muted/50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Eye className="h-4 w-4 text-blue-500" />
+                      <span className="text-sm text-muted-foreground">Views</span>
+                    </div>
+                    <p className="text-xl font-bold" data-testid="text-window-views">
+                      {formatNumber(selectedWindowData.views)}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted/50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Heart className="h-4 w-4 text-red-500" />
+                      <span className="text-sm text-muted-foreground">Likes</span>
+                    </div>
+                    <p className="text-xl font-bold" data-testid="text-window-likes">
+                      {formatNumber(selectedWindowData.likes)}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted/50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <MessageCircle className="h-4 w-4 text-green-500" />
+                      <span className="text-sm text-muted-foreground">Comments</span>
+                    </div>
+                    <p className="text-xl font-bold" data-testid="text-window-comments">
+                      {formatNumber(selectedWindowData.comments)}
+                    </p>
+                  </div>
+                  <div className="p-4 rounded-lg bg-muted/50">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Share2 className="h-4 w-4 text-purple-500" />
+                      <span className="text-sm text-muted-foreground">Shares</span>
+                    </div>
+                    <p className="text-xl font-bold" data-testid="text-window-shares">
+                      {formatNumber(selectedWindowData.shares)}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
 
         {engagementHistory.length > 0 && (
           <Card>
@@ -374,10 +466,11 @@ export default function SharedCampaign() {
                     className="flex items-center justify-between p-4 border rounded-lg"
                     data-testid={`shared-link-${link.id}`}
                   >
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                    <div className="flex items-center gap-3 min-w-0 flex-1 flex-wrap">
                       <Badge className={getPlatformColor(link.platform)}>
                         {link.platform}
                       </Badge>
+                      {getStatusBadge(link.postStatus)}
                       {link.creatorName && (
                         <span className="text-sm font-medium">{link.creatorName}</span>
                       )}

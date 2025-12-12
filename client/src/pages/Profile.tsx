@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { User, Mail, Phone, Users, Plus, Trash2, Loader2, CheckCircle, ArrowLeft } from "lucide-react";
+import { User, Mail, Phone, Users, Plus, Trash2, Loader2, CheckCircle, ArrowLeft, Lock, Eye, EyeOff } from "lucide-react";
 import { Link } from "wouter";
 
 type TeamMember = {
@@ -81,6 +81,31 @@ export default function Profile() {
   const [newMemberEmail, setNewMemberEmail] = useState("");
   const [newMemberRole, setNewMemberRole] = useState("");
   const [showAddForm, setShowAddForm] = useState(false);
+  
+  // Password state
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false);
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [passwordChanging, setPasswordChanging] = useState(false);
+  const [hasPassword, setHasPassword] = useState<boolean | null>(null);
+
+  // Fetch password status on mount
+  useEffect(() => {
+    async function checkPasswordStatus() {
+      try {
+        const res = await fetch("/api/auth/has-password", { credentials: "include" });
+        if (res.ok) {
+          const data = await res.json();
+          setHasPassword(data.hasPassword);
+        }
+      } catch (error) {
+        console.error("Failed to check password status:", error);
+      }
+    }
+    checkPasswordStatus();
+  }, []);
 
   if (authLoading) {
     return (
@@ -133,6 +158,66 @@ export default function Profile() {
     setNewMemberEmail("");
     setNewMemberRole("");
     setShowAddForm(false);
+  }
+
+  async function handleChangePassword(e: React.FormEvent) {
+    e.preventDefault();
+    
+    if (newPassword !== confirmPassword) {
+      toast({
+        title: "Passwords don't match",
+        description: "Please make sure both passwords are the same.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast({
+        title: "Password too short",
+        description: "Password must be at least 6 characters.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    setPasswordChanging(true);
+    try {
+      const endpoint = hasPassword ? "/api/auth/change-password" : "/api/auth/set-password";
+      const body = hasPassword 
+        ? { currentPassword, newPassword }
+        : { newPassword };
+      
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        credentials: "include",
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || "Failed to update password");
+      }
+
+      toast({
+        title: hasPassword ? "Password changed" : "Password set",
+        description: "Your password has been updated successfully.",
+      });
+
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setHasPassword(true);
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setPasswordChanging(false);
+    }
   }
 
   const initials = [user.firstName, user.lastName]
@@ -206,6 +291,96 @@ export default function Profile() {
                 </div>
               </div>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Lock className="h-5 w-5" />
+              Password
+            </CardTitle>
+            <CardDescription>
+              {hasPassword === false
+                ? "Set a password to enable password login"
+                : "Change your account password"}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleChangePassword} className="space-y-4 max-w-md">
+              {hasPassword !== false && (
+                <div className="space-y-2">
+                  <Label htmlFor="current-password">Current Password</Label>
+                  <div className="relative">
+                    <Input
+                      id="current-password"
+                      type={showCurrentPassword ? "text" : "password"}
+                      placeholder="Enter current password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      data-testid="input-current-password"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full"
+                      onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                    >
+                      {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="new-password">New Password</Label>
+                <div className="relative">
+                  <Input
+                    id="new-password"
+                    type={showNewPassword ? "text" : "password"}
+                    placeholder="Enter new password"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    data-testid="input-new-password"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute right-0 top-0 h-full"
+                    onClick={() => setShowNewPassword(!showNewPassword)}
+                  >
+                    {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirm-password">Confirm New Password</Label>
+                <Input
+                  id="confirm-password"
+                  type="password"
+                  placeholder="Confirm new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  data-testid="input-confirm-password"
+                />
+              </div>
+              <div className="flex items-center gap-4 pt-2">
+                <Button
+                  type="submit"
+                  disabled={passwordChanging || !newPassword || !confirmPassword || (hasPassword !== false && !currentPassword)}
+                  data-testid="button-change-password"
+                >
+                  {passwordChanging && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                  {hasPassword === false ? "Set Password" : "Change Password"}
+                </Button>
+                <Link href="/forgot-password">
+                  <Button type="button" variant="ghost" className="text-sm" data-testid="link-forgot-password">
+                    Forgot password?
+                  </Button>
+                </Link>
+              </div>
+            </form>
           </CardContent>
         </Card>
 

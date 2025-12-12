@@ -8,6 +8,7 @@ import { setupAuth, isAuthenticated } from "./replitAuth";
 import profileRoutes from "./profileRoutes";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
+import { sendPasswordResetEmail } from "./email";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -564,6 +565,60 @@ export async function registerRoutes(
       // Get engagement history
       const engagementHistory = await storage.getCampaignEngagementHistory(campaign.id);
 
+      // Calculate engagement by time windows
+      const now = new Date();
+      const timeWindows = [
+        { key: "24h", label: "Last 24 Hours", hoursAgo: 24 },
+        { key: "72h", label: "Last 72 Hours", hoursAgo: 72 },
+        { key: "7d", label: "Last 7 Days", hoursAgo: 24 * 7 },
+        { key: "30d", label: "Last 30 Days", hoursAgo: 24 * 30 },
+        { key: "60d", label: "Last 60 Days", hoursAgo: 24 * 60 },
+        { key: "90d", label: "Last 90 Days", hoursAgo: 24 * 90 },
+      ];
+
+      const engagementWindows: Record<string, { views: number; likes: number; comments: number; shares: number; label: string }> = {};
+      
+      for (const window of timeWindows) {
+        const cutoffDate = new Date(now.getTime() - window.hoursAgo * 60 * 60 * 1000);
+        const filteredHistory = engagementHistory.filter((h: any) => new Date(h.date) >= cutoffDate);
+        
+        // Sum up the latest values from the filtered history
+        const stats = filteredHistory.reduce(
+          (acc: any, h: any) => ({
+            views: acc.views + (h.views || 0),
+            likes: acc.likes + (h.likes || 0),
+            comments: acc.comments + (h.comments || 0),
+            shares: acc.shares + (h.shares || 0),
+          }),
+          { views: 0, likes: 0, comments: 0, shares: 0 }
+        );
+
+        engagementWindows[window.key] = {
+          ...stats,
+          label: window.label,
+        };
+      }
+
+      // If no history, use current social link totals for all windows
+      if (engagementHistory.length === 0) {
+        const totals = socialLinks.reduce(
+          (acc, link) => ({
+            views: acc.views + (link.views || 0),
+            likes: acc.likes + (link.likes || 0),
+            comments: acc.comments + (link.comments || 0),
+            shares: acc.shares + (link.shares || 0),
+          }),
+          { views: 0, likes: 0, comments: 0, shares: 0 }
+        );
+
+        for (const window of timeWindows) {
+          engagementWindows[window.key] = {
+            ...totals,
+            label: window.label,
+          };
+        }
+      }
+
       res.json({ 
         campaign: {
           id: campaign.id,
@@ -575,10 +630,182 @@ export async function registerRoutes(
         },
         socialLinks,
         engagementHistory,
+        engagementWindows,
       });
     } catch (error) {
       console.error("Failed to fetch public campaign:", error);
       res.status(500).json({ error: "Failed to fetch campaign" });
+    }
+  });
+
+  // ==================== PASSWORD MANAGEMENT ROUTES ====================
+  
+  // Check if user has password set
+  app.get("/api/auth/has-password", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const user = await storage.getUser(userId);
+      res.json({ hasPassword: !!user?.passwordHash });
+    } catch (error) {
+      console.error("Failed to check password status:", error);
+      res.status(500).json({ error: "Failed to check password status" });
+    }
+  });
+
+  // Change password (logged-in user)
+  app.post("/api/auth/change-password", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const schema = z.object({
+        currentPassword: z.string().min(1),
+        newPassword: z.string().min(6),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0].message });
+      }
+
+      const { currentPassword, newPassword } = parsed.data;
+      const user = await storage.getUser(userId);
+
+      if (!user?.passwordHash) {
+        return res.status(400).json({ error: "Password login is not enabled for this account. Please set a password first using forgot password." });
+      }
+
+      const isValid = await bcrypt.compare(currentPassword, user.passwordHash);
+      if (!isValid) {
+        return res.status(401).json({ error: "Current password is incorrect" });
+      }
+
+      const newHash = await bcrypt.hash(newPassword, 10);
+      await storage.updateUserPassword(userId, newHash);
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Failed to change password:", error);
+      res.status(500).json({ error: "Failed to change password" });
+    }
+  });
+
+  // Set password (for users without password - first time setup)
+  app.post("/api/auth/set-password", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const schema = z.object({
+        newPassword: z.string().min(6),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0].message });
+      }
+
+      const user = await storage.getUser(userId);
+      if (user?.passwordHash) {
+        return res.status(400).json({ error: "Password already set. Use change password instead." });
+      }
+
+      const hash = await bcrypt.hash(parsed.data.newPassword, 10);
+      await storage.updateUserPassword(userId, hash);
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Failed to set password:", error);
+      res.status(500).json({ error: "Failed to set password" });
+    }
+  });
+
+  // Forgot password - send reset email
+  app.post("/api/auth/forgot-password", async (req, res) => {
+    try {
+      const schema = z.object({
+        email: z.string().email(),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: "Valid email required" });
+      }
+
+      const { email } = parsed.data;
+      const user = await storage.getUserByEmail(email);
+
+      // Always return success to avoid email enumeration
+      if (!user) {
+        return res.json({ ok: true });
+      }
+
+      const token = crypto.randomBytes(32).toString("hex");
+      const expires = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+
+      await storage.updateUserResetToken(user.id, token, expires);
+
+      // Get the app URL from environment or request
+      const appUrl = process.env.REPLIT_DEV_DOMAIN 
+        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
+        : process.env.REPLIT_DEPLOYMENT_URL 
+          ? `https://${process.env.REPLIT_DEPLOYMENT_URL}`
+          : `${req.protocol}://${req.get('host')}`;
+      
+      const resetLink = `${appUrl}/reset-password?token=${token}`;
+
+      try {
+        await sendPasswordResetEmail(email, resetLink);
+      } catch (emailError) {
+        console.error("Failed to send reset email:", emailError);
+        // Still return success to avoid exposing email status
+      }
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Failed to process forgot password:", error);
+      res.status(500).json({ error: "Failed to process request" });
+    }
+  });
+
+  // Reset password with token
+  app.post("/api/auth/reset-password", async (req, res) => {
+    try {
+      const schema = z.object({
+        token: z.string().min(1),
+        newPassword: z.string().min(6),
+      });
+
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0].message });
+      }
+
+      const { token, newPassword } = parsed.data;
+      const user = await storage.getUserByResetToken(token);
+
+      if (!user || !user.resetTokenExpiresAt || user.resetTokenExpiresAt < new Date()) {
+        return res.status(400).json({ error: "Invalid or expired reset link" });
+      }
+
+      const hash = await bcrypt.hash(newPassword, 10);
+      await storage.updateUserPassword(user.id, hash);
+
+      // Clear the reset token after successful reset
+      await storage.updateUserResetToken(user.id, null, null);
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Failed to reset password:", error);
+      res.status(500).json({ error: "Failed to reset password" });
     }
   });
 

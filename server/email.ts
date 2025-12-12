@@ -38,6 +38,43 @@ async function getUncachableResendClient() {
   };
 }
 
+export async function sendPasswordResetEmail(to: string, resetLink: string): Promise<void> {
+  try {
+    const { client, fromEmail } = await getUncachableResendClient();
+    
+    await client.emails.send({
+      from: fromEmail || 'Campaign Tracker <onboarding@resend.dev>',
+      to: [to],
+      subject: 'Reset Your Password',
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <h1 style="color: #333; text-align: center;">Reset Your Password</h1>
+          <p style="color: #666; font-size: 16px;">
+            You requested a password reset. Click the button below to create a new password:
+          </p>
+          <div style="text-align: center; margin: 30px 0;">
+            <a href="${resetLink}" style="background: #3b82f6; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block;">
+              Reset Password
+            </a>
+          </div>
+          <p style="color: #666; font-size: 14px;">
+            This link will expire in 1 hour. If you didn't request this reset, please ignore this email.
+          </p>
+          <p style="color: #999; font-size: 12px; margin-top: 20px;">
+            If the button doesn't work, copy and paste this link into your browser:<br/>
+            <a href="${resetLink}" style="color: #3b82f6; word-break: break-all;">${resetLink}</a>
+          </p>
+        </div>
+      `,
+    });
+    
+    console.log(`[EMAIL] Password reset email sent to ${to}`);
+  } catch (error) {
+    console.error('[EMAIL] Failed to send password reset email:', error);
+    throw error;
+  }
+}
+
 export async function sendVerificationEmail(to: string, code: string): Promise<void> {
   try {
     const { client, fromEmail } = await getUncachableResendClient();

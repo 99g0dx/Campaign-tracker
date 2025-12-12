@@ -22,8 +22,12 @@ import {
 export interface IStorage {
   // User operations (required for Replit Auth)
   getUser(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByResetToken(token: string): Promise<User | undefined>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserProfile(id: string, data: { firstName?: string; lastName?: string; phone?: string; email?: string; verificationCode?: string | null; verificationExpiresAt?: Date | null; isVerified?: boolean }): Promise<User | undefined>;
+  updateUserPassword(id: string, passwordHash: string): Promise<User | undefined>;
+  updateUserResetToken(id: string, resetToken: string | null, resetTokenExpiresAt: Date | null): Promise<User | undefined>;
   
   // Campaigns
   getCampaigns(): Promise<Campaign[]>;
@@ -117,6 +121,43 @@ export class DatabaseStorage implements IStorage {
       .update(users)
       .set({
         ...data,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async getUserByResetToken(token: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.resetToken, token));
+    return user;
+  }
+
+  async updateUserPassword(id: string, passwordHash: string): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({
+        passwordHash,
+        resetToken: null,
+        resetTokenExpiresAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return user;
+  }
+
+  async updateUserResetToken(id: string, resetToken: string | null, resetTokenExpiresAt: Date | null): Promise<User | undefined> {
+    const [user] = await db
+      .update(users)
+      .set({
+        resetToken,
+        resetTokenExpiresAt,
         updatedAt: new Date(),
       })
       .where(eq(users.id, id))
