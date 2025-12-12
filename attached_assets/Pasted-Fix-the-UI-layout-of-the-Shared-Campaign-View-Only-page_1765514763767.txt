@@ -1,0 +1,70 @@
+Fix the UI layout of the Shared Campaign (View Only) page so the information is easier to understand at a glance, especially the “Posts” section.
+
+Goals
+
+* Improve visual hierarchy and spacing so users understand: campaign info → KPIs → time-window breakdown → trend chart → posts table.
+* Make “Posts” readable like a real table with clear column headers (right now metrics show with icons but no labels).
+
+Required layout changes
+
+1. Page structure and hierarchy
+
+* Add a clear header area at the top that shows:
+
+  * Campaign name (lovn - SIMB edit campaign)
+  * Track name (Sorry i'm Busy by Lovn)
+  * A small “View Only” label/badge
+* Keep the four KPI cards (Total Views, Total Likes, Comments, Shares) but ensure consistent sizing, spacing, and alignment.
+
+2. Engagement Breakdown by Time Period
+
+* Keep the time window buttons (Last 24 Hours, 72 Hours, 7 Days, 30 Days, 60 Days, 90 Days) but:
+
+  * Visually indicate which one is selected (active state).
+  * Make the selected window’s metrics (Views, Likes, Comments, Shares) appear directly under the buttons in a clean grid.
+  * Add a small label like “Selected window totals” so users know these numbers are for the chosen time window.
+
+3. Engagement Over Time chart section
+
+* Keep the chart but improve readability:
+
+  * Add consistent padding/margins around the chart container.
+  * Keep the legend clear and aligned.
+  * Ensure this section does not visually compete with the Posts section.
+
+4. Posts section must become a labeled table
+   Replace the current list-style rows with a proper table layout that includes a header row labeling each column.
+
+* Add a header row with these columns:
+
+  * Platform
+  * Status
+  * Creator
+  * Post Link
+  * Views
+  * Likes
+  * Comments
+  * Shares (if shares are available per post; if not available, omit the column or show “—” consistently)
+* Each post row should align perfectly under these headers.
+* Right-align all numeric metric columns (Views, Likes, Comments, Shares).
+* Use tabular/monospace number styling (tabular-nums) so values like 38.8K, 5.3K align cleanly.
+* Keep platform and status as compact badges (TikTok/Instagram, Active/Pending).
+* Make Post Link truncated with ellipsis but still clickable, and include the external-link icon.
+* Add hover state on row (subtle background change) to improve scanability.
+* Make the table responsive:
+
+  * Desktop: full table with columns.
+  * Mobile: convert each row into a stacked card with labels (Platform, Status, Creator, Link, Views, Likes, Comments, Shares).
+
+5. Optional but recommended (improves comprehension)
+
+* Add a small toolbar above Posts:
+
+  * Search input: “Search creator or link”
+  * Filter dropdowns or chips for Platform and Status
+  * Sort dropdown: “Sort by Views (desc)” (sorting logic can be simple, but the UI should exist)
+
+Deliverable
+
+* Update the React UI components and Tailwind styling to implement the above, keeping the existing data and functionality intact.
+* Do not change the page’s purpose (view-only shared campaign). Only improve layout, labeling, and readability.

@@ -1,12 +1,26 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Lock,
   Eye,
@@ -17,6 +31,8 @@ import {
   ExternalLink,
   Loader2,
   AlertCircle,
+  Search,
+  ArrowUpDown,
 } from "lucide-react";
 import {
   LineChart,
@@ -102,14 +118,14 @@ function getPlatformColor(platform: string): string {
 function getStatusBadge(status: string) {
   switch (status?.toLowerCase()) {
     case "active":
-      return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200">Active</Badge>;
+      return <Badge className="bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200 no-default-hover-elevate no-default-active-elevate">Active</Badge>;
     case "done":
-      return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200">Done</Badge>;
+      return <Badge className="bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 no-default-hover-elevate no-default-active-elevate">Done</Badge>;
     case "briefed":
-      return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">Briefed</Badge>;
+      return <Badge className="bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200 no-default-hover-elevate no-default-active-elevate">Briefed</Badge>;
     case "pending":
     default:
-      return <Badge variant="secondary">Pending</Badge>;
+      return <Badge variant="secondary" className="no-default-hover-elevate no-default-active-elevate">Pending</Badge>;
   }
 }
 
@@ -130,6 +146,10 @@ export default function SharedCampaign() {
     comments: true,
     shares: true,
   });
+  const [searchQuery, setSearchQuery] = useState("");
+  const [platformFilter, setPlatformFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<string>("views");
 
   const toggleMetric = (metric: keyof typeof visibleMetrics) => {
     setVisibleMetrics(prev => ({ ...prev, [metric]: !prev[metric] }));
@@ -188,6 +208,48 @@ export default function SharedCampaign() {
       setVerifying(false);
     }
   }
+
+  const filteredAndSortedLinks = useMemo(() => {
+    if (!data?.socialLinks) return [];
+    
+    let filtered = data.socialLinks.filter((link) => {
+      const matchesSearch = !searchQuery || 
+        (link.creatorName?.toLowerCase().includes(searchQuery.toLowerCase())) ||
+        link.url.toLowerCase().includes(searchQuery.toLowerCase());
+      
+      const matchesPlatform = platformFilter === "all" || 
+        link.platform.toLowerCase() === platformFilter.toLowerCase();
+      
+      const matchesStatus = statusFilter === "all" || 
+        link.postStatus.toLowerCase() === statusFilter.toLowerCase();
+      
+      return matchesSearch && matchesPlatform && matchesStatus;
+    });
+
+    filtered.sort((a, b) => {
+      switch (sortBy) {
+        case "views":
+          return (b.views || 0) - (a.views || 0);
+        case "likes":
+          return (b.likes || 0) - (a.likes || 0);
+        case "comments":
+          return (b.comments || 0) - (a.comments || 0);
+        case "shares":
+          return (b.shares || 0) - (a.shares || 0);
+        case "creator":
+          return (a.creatorName || "").localeCompare(b.creatorName || "");
+        default:
+          return 0;
+      }
+    });
+
+    return filtered;
+  }, [data?.socialLinks, searchQuery, platformFilter, statusFilter, sortBy]);
+
+  const uniquePlatforms = useMemo(() => {
+    if (!data?.socialLinks) return [];
+    return [...new Set(data.socialLinks.map(l => l.platform))];
+  }, [data?.socialLinks]);
 
   if (loading) {
     return (
@@ -259,63 +321,87 @@ export default function SharedCampaign() {
 
   return (
     <div className="min-h-screen bg-background">
-      <div className="max-w-6xl mx-auto p-6 space-y-6">
-        <div className="text-center mb-8">
-          <Badge variant="outline" className="mb-2">
-            Shared Campaign - View Only
-          </Badge>
-          <h1 className="text-3xl font-bold" data-testid="text-campaign-name">
-            {campaign.name}
-          </h1>
-          <p className="text-muted-foreground flex items-center justify-center gap-2 mt-2">
-            <Music className="h-4 w-4" />
-            {campaign.songTitle}
-            {campaign.songArtist && ` by ${campaign.songArtist}`}
-          </p>
-        </div>
+      <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-6">
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-3 flex-wrap">
+                  <h1 className="text-2xl md:text-3xl font-bold" data-testid="text-campaign-name">
+                    {campaign.name}
+                  </h1>
+                  <Badge variant="outline" className="no-default-hover-elevate no-default-active-elevate shrink-0">
+                    View Only
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Music className="h-4 w-4 shrink-0" />
+                  <span className="text-sm md:text-base">
+                    {campaign.songTitle}
+                    {campaign.songArtist && <span className="font-medium"> by {campaign.songArtist}</span>}
+                  </span>
+                </div>
+              </div>
+              <Badge 
+                variant={campaign.status === "Active" ? "default" : "secondary"}
+                className="shrink-0 no-default-hover-elevate no-default-active-elevate"
+              >
+                {campaign.status}
+              </Badge>
+            </div>
+          </CardContent>
+        </Card>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <Eye className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-2xl font-bold" data-testid="text-total-views">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="p-2 rounded-full bg-blue-100 dark:bg-blue-900/30">
+                  <Eye className="h-5 w-5 text-blue-600 dark:text-blue-400" />
+                </div>
+                <p className="text-2xl md:text-3xl font-bold tabular-nums" data-testid="text-total-views">
                   {formatNumber(totalViews)}
                 </p>
-                <p className="text-sm text-muted-foreground">Total Views</p>
+                <p className="text-xs md:text-sm text-muted-foreground font-medium">Total Views</p>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <Heart className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-2xl font-bold" data-testid="text-total-likes">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="p-2 rounded-full bg-red-100 dark:bg-red-900/30">
+                  <Heart className="h-5 w-5 text-red-600 dark:text-red-400" />
+                </div>
+                <p className="text-2xl md:text-3xl font-bold tabular-nums" data-testid="text-total-likes">
                   {formatNumber(totalLikes)}
                 </p>
-                <p className="text-sm text-muted-foreground">Total Likes</p>
+                <p className="text-xs md:text-sm text-muted-foreground font-medium">Total Likes</p>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <MessageCircle className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-2xl font-bold" data-testid="text-total-comments">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="p-2 rounded-full bg-green-100 dark:bg-green-900/30">
+                  <MessageCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
+                </div>
+                <p className="text-2xl md:text-3xl font-bold tabular-nums" data-testid="text-total-comments">
                   {formatNumber(totalComments)}
                 </p>
-                <p className="text-sm text-muted-foreground">Comments</p>
+                <p className="text-xs md:text-sm text-muted-foreground font-medium">Comments</p>
               </div>
             </CardContent>
           </Card>
           <Card>
-            <CardContent className="pt-6">
-              <div className="text-center">
-                <Share2 className="h-6 w-6 mx-auto mb-2 text-muted-foreground" />
-                <p className="text-2xl font-bold" data-testid="text-total-shares">
+            <CardContent className="p-4 md:p-6">
+              <div className="flex flex-col items-center text-center space-y-2">
+                <div className="p-2 rounded-full bg-purple-100 dark:bg-purple-900/30">
+                  <Share2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
+                </div>
+                <p className="text-2xl md:text-3xl font-bold tabular-nums" data-testid="text-total-shares">
                   {formatNumber(totalShares)}
                 </p>
-                <p className="text-sm text-muted-foreground">Shares</p>
+                <p className="text-xs md:text-sm text-muted-foreground font-medium">Shares</p>
               </div>
             </CardContent>
           </Card>
@@ -323,9 +409,9 @@ export default function SharedCampaign() {
 
         {engagementWindows && (
           <Card>
-            <CardHeader>
-              <CardTitle>Engagement Breakdown by Time Period</CardTitle>
-              <CardDescription>View engagement metrics across different time windows</CardDescription>
+            <CardHeader className="pb-4">
+              <CardTitle className="text-lg">Engagement Breakdown by Time Period</CardTitle>
+              <CardDescription>Compare engagement metrics across different time windows</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-wrap gap-2">
@@ -343,42 +429,47 @@ export default function SharedCampaign() {
               </div>
               
               {selectedWindowData && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-4">
-                  <div className="p-4 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Eye className="h-4 w-4 text-blue-500" />
-                      <span className="text-sm text-muted-foreground">Views</span>
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground font-medium">
+                    Selected window totals ({selectedWindowData.label})
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Eye className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Views</span>
+                      </div>
+                      <p className="text-xl font-bold tabular-nums" data-testid="text-window-views">
+                        {formatNumber(selectedWindowData.views)}
+                      </p>
                     </div>
-                    <p className="text-xl font-bold" data-testid="text-window-views">
-                      {formatNumber(selectedWindowData.views)}
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Heart className="h-4 w-4 text-red-500" />
-                      <span className="text-sm text-muted-foreground">Likes</span>
+                    <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Heart className="h-4 w-4 text-red-600 dark:text-red-400" />
+                        <span className="text-sm font-medium text-red-700 dark:text-red-300">Likes</span>
+                      </div>
+                      <p className="text-xl font-bold tabular-nums" data-testid="text-window-likes">
+                        {formatNumber(selectedWindowData.likes)}
+                      </p>
                     </div>
-                    <p className="text-xl font-bold" data-testid="text-window-likes">
-                      {formatNumber(selectedWindowData.likes)}
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-2 mb-1">
-                      <MessageCircle className="h-4 w-4 text-green-500" />
-                      <span className="text-sm text-muted-foreground">Comments</span>
+                    <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-100 dark:border-green-900">
+                      <div className="flex items-center gap-2 mb-1">
+                        <MessageCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
+                        <span className="text-sm font-medium text-green-700 dark:text-green-300">Comments</span>
+                      </div>
+                      <p className="text-xl font-bold tabular-nums" data-testid="text-window-comments">
+                        {formatNumber(selectedWindowData.comments)}
+                      </p>
                     </div>
-                    <p className="text-xl font-bold" data-testid="text-window-comments">
-                      {formatNumber(selectedWindowData.comments)}
-                    </p>
-                  </div>
-                  <div className="p-4 rounded-lg bg-muted/50">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Share2 className="h-4 w-4 text-purple-500" />
-                      <span className="text-sm text-muted-foreground">Shares</span>
+                    <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Share2 className="h-4 w-4 text-purple-600 dark:text-purple-400" />
+                        <span className="text-sm font-medium text-purple-700 dark:text-purple-300">Shares</span>
+                      </div>
+                      <p className="text-xl font-bold tabular-nums" data-testid="text-window-shares">
+                        {formatNumber(selectedWindowData.shares)}
+                      </p>
                     </div>
-                    <p className="text-xl font-bold" data-testid="text-window-shares">
-                      {formatNumber(selectedWindowData.shares)}
-                    </p>
                   </div>
                 </div>
               )}
@@ -388,8 +479,11 @@ export default function SharedCampaign() {
 
         {engagementHistory.length > 0 && (
           <Card>
-            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <CardTitle>Engagement Over Time</CardTitle>
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between pb-4">
+              <div>
+                <CardTitle className="text-lg">Engagement Over Time</CardTitle>
+                <CardDescription>Track how engagement metrics change over time</CardDescription>
+              </div>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex items-center space-x-2">
                   <Checkbox 
@@ -515,57 +609,193 @@ export default function SharedCampaign() {
         )}
 
         <Card>
-          <CardHeader>
-            <CardTitle>Posts ({socialLinks.length})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {socialLinks.length === 0 ? (
-              <p className="text-center text-muted-foreground py-8">
-                No posts in this campaign yet.
-              </p>
-            ) : (
-              <div className="space-y-3">
-                {socialLinks.map((link) => (
-                  <div
-                    key={link.id}
-                    className="flex items-center justify-between p-4 border rounded-lg"
-                    data-testid={`shared-link-${link.id}`}
-                  >
-                    <div className="flex items-center gap-3 min-w-0 flex-1 flex-wrap">
-                      <Badge className={getPlatformColor(link.platform)}>
-                        {link.platform}
-                      </Badge>
-                      {getStatusBadge(link.postStatus)}
-                      {link.creatorName && (
-                        <span className="text-sm font-medium">{link.creatorName}</span>
-                      )}
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-sm text-muted-foreground hover:text-foreground truncate flex items-center gap-1"
-                      >
-                        <span className="truncate max-w-[200px]">{link.url}</span>
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                      </a>
-                    </div>
-                    <div className="flex items-center gap-4 text-sm text-muted-foreground shrink-0">
-                      <span className="flex items-center gap-1">
-                        <Eye className="h-3 w-3" />
-                        {formatNumber(link.views)}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Heart className="h-3 w-3" />
-                        {formatNumber(link.likes)}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <MessageCircle className="h-3 w-3" />
-                        {formatNumber(link.comments)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
+          <CardHeader className="pb-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <CardTitle className="text-lg">Posts ({socialLinks.length})</CardTitle>
+                <CardDescription>All creators and their posts in this campaign</CardDescription>
               </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  placeholder="Search creator or link..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-search-posts"
+                />
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                <Select value={platformFilter} onValueChange={setPlatformFilter}>
+                  <SelectTrigger className="w-[130px]" data-testid="select-platform-filter">
+                    <SelectValue placeholder="Platform" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Platforms</SelectItem>
+                    {uniquePlatforms.map((platform) => (
+                      <SelectItem key={platform} value={platform}>
+                        {platform}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Select value={statusFilter} onValueChange={setStatusFilter}>
+                  <SelectTrigger className="w-[120px]" data-testid="select-status-filter">
+                    <SelectValue placeholder="Status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                    <SelectItem value="briefed">Briefed</SelectItem>
+                    <SelectItem value="active">Active</SelectItem>
+                    <SelectItem value="done">Done</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Select value={sortBy} onValueChange={setSortBy}>
+                  <SelectTrigger className="w-[140px]" data-testid="select-sort-by">
+                    <ArrowUpDown className="h-4 w-4 mr-1" />
+                    <SelectValue placeholder="Sort by" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="views">Views (High)</SelectItem>
+                    <SelectItem value="likes">Likes (High)</SelectItem>
+                    <SelectItem value="comments">Comments (High)</SelectItem>
+                    <SelectItem value="shares">Shares (High)</SelectItem>
+                    <SelectItem value="creator">Creator (A-Z)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {filteredAndSortedLinks.length === 0 ? (
+              <div className="text-center py-12 text-muted-foreground">
+                {socialLinks.length === 0 
+                  ? "No posts in this campaign yet."
+                  : "No posts match your search criteria."}
+              </div>
+            ) : (
+              <>
+                <div className="hidden md:block border rounded-lg overflow-hidden">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-muted/50">
+                        <TableHead className="w-[100px]">Platform</TableHead>
+                        <TableHead className="w-[90px]">Status</TableHead>
+                        <TableHead>Creator</TableHead>
+                        <TableHead>Post Link</TableHead>
+                        <TableHead className="text-right w-[90px]">Views</TableHead>
+                        <TableHead className="text-right w-[80px]">Likes</TableHead>
+                        <TableHead className="text-right w-[90px]">Comments</TableHead>
+                        <TableHead className="text-right w-[80px]">Shares</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredAndSortedLinks.map((link) => (
+                        <TableRow 
+                          key={link.id} 
+                          className="hover-elevate"
+                          data-testid={`shared-link-${link.id}`}
+                        >
+                          <TableCell>
+                            <Badge className={`${getPlatformColor(link.platform)} no-default-hover-elevate no-default-active-elevate`}>
+                              {link.platform}
+                            </Badge>
+                          </TableCell>
+                          <TableCell>
+                            {getStatusBadge(link.postStatus)}
+                          </TableCell>
+                          <TableCell className="font-medium">
+                            {link.creatorName || <span className="text-muted-foreground">—</span>}
+                          </TableCell>
+                          <TableCell>
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 max-w-[200px]"
+                            >
+                              <span className="truncate">{link.url}</span>
+                              <ExternalLink className="h-3 w-3 shrink-0" />
+                            </a>
+                          </TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {formatNumber(link.views)}
+                          </TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {formatNumber(link.likes)}
+                          </TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {formatNumber(link.comments)}
+                          </TableCell>
+                          <TableCell className="text-right font-medium tabular-nums">
+                            {link.shares > 0 ? formatNumber(link.shares) : "—"}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                <div className="md:hidden space-y-3">
+                  {filteredAndSortedLinks.map((link) => (
+                    <Card key={link.id} className="hover-elevate" data-testid={`shared-link-mobile-${link.id}`}>
+                      <CardContent className="p-4 space-y-3">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <div className="flex items-center gap-2">
+                            <Badge className={`${getPlatformColor(link.platform)} no-default-hover-elevate no-default-active-elevate`}>
+                              {link.platform}
+                            </Badge>
+                            {getStatusBadge(link.postStatus)}
+                          </div>
+                        </div>
+                        
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Creator</p>
+                          <p className="font-medium text-sm">
+                            {link.creatorName || <span className="text-muted-foreground">—</span>}
+                          </p>
+                        </div>
+
+                        <div className="space-y-1">
+                          <p className="text-xs text-muted-foreground">Post Link</p>
+                          <a
+                            href={link.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
+                          >
+                            <span className="truncate">{link.url}</span>
+                            <ExternalLink className="h-3 w-3 shrink-0" />
+                          </a>
+                        </div>
+
+                        <div className="grid grid-cols-4 gap-2 pt-2 border-t">
+                          <div className="text-center">
+                            <p className="text-xs text-muted-foreground">Views</p>
+                            <p className="font-bold tabular-nums">{formatNumber(link.views)}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs text-muted-foreground">Likes</p>
+                            <p className="font-bold tabular-nums">{formatNumber(link.likes)}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs text-muted-foreground">Comments</p>
+                            <p className="font-bold tabular-nums">{formatNumber(link.comments)}</p>
+                          </div>
+                          <div className="text-center">
+                            <p className="text-xs text-muted-foreground">Shares</p>
+                            <p className="font-bold tabular-nums">{link.shares > 0 ? formatNumber(link.shares) : "—"}</p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </>
             )}
           </CardContent>
         </Card>
