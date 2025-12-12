@@ -34,8 +34,6 @@ import {
   Share2,
   Music,
   Link as LinkIcon,
-  RefreshCw,
-  ExternalLink,
   Loader2,
   ArrowUpDown,
   Filter,
@@ -48,8 +46,6 @@ import {
   useAddCampaign,
   useSocialLinks,
   useAddSocialLink,
-  useRescrapeSocialLink,
-  useUpdateSocialLink,
   type Campaign,
   type SocialLink,
   type PostStatus,
@@ -100,12 +96,8 @@ function CampaignCard({
   onAddLink: (campaignId: number) => void;
 }) {
   const campaignLinks = socialLinks.filter((l) => l.campaignId === campaign.id);
-  const { mutate: rescrape, isPending: isRescraping } = useRescrapeSocialLink();
-  const { mutate: updateLink } = useUpdateSocialLink();
-
-  const handleStatusChange = (linkId: number, newStatus: PostStatus) => {
-    updateLink({ id: linkId, postStatus: newStatus });
-  };
+  const displayedLinks = campaignLinks.slice(0, 3);
+  const remainingCount = campaignLinks.length - 3;
 
   return (
     <Card className="overflow-visible" data-testid={`card-campaign-${campaign.id}`}>
@@ -180,7 +172,10 @@ function CampaignCard({
             <Button
               size="sm"
               variant="outline"
-              onClick={() => onAddLink(campaign.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAddLink(campaign.id);
+              }}
               data-testid={`button-add-link-${campaign.id}`}
             >
               <Plus className="h-4 w-4 mr-1" />
@@ -188,88 +183,50 @@ function CampaignCard({
             </Button>
           </div>
 
-          {campaignLinks.length > 0 && (
+          {displayedLinks.length > 0 && (
             <div className="space-y-2">
-              {campaignLinks.map((link) => {
+              {displayedLinks.map((link) => {
                 const statusOption = POST_STATUS_OPTIONS.find(o => o.value === link.postStatus) || POST_STATUS_OPTIONS[0];
                 return (
                   <div
                     key={link.id}
-                    className="rounded-md border p-3 text-sm space-y-2"
+                    className="rounded-md border p-2 text-sm"
                     data-testid={`link-${link.id}`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                      <div className="flex items-center gap-2 min-w-0">
                         <Badge className={`text-xs ${getPlatformColor(link.platform)}`}>
                           {link.platform}
                         </Badge>
                         {link.creatorName && (
-                          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <User className="h-3 w-3" />
+                          <span className="text-xs text-muted-foreground truncate">
                             {link.creatorName}
                           </span>
                         )}
                       </div>
-                      <Select
-                        value={link.postStatus}
-                        onValueChange={(v) => handleStatusChange(link.id, v as PostStatus)}
-                      >
-                        <SelectTrigger 
-                          className={`w-[100px] h-7 text-xs ${statusOption.color}`}
-                          data-testid={`select-status-${link.id}`}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {POST_STATUS_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value}>
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="truncate text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 text-xs"
-                      >
-                        <span className="truncate max-w-[200px]">{link.url}</span>
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                      </a>
                       <div className="flex items-center gap-2 shrink-0">
                         {link.status === "scraped" && (
                           <span className="text-xs text-muted-foreground">
                             {formatNumber(link.views)} views
                           </span>
                         )}
-                        {link.status === "scraping" && (
-                          <Badge variant="outline" className="text-xs">
-                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                            Scraping
-                          </Badge>
-                        )}
-                        {link.status === "error" && (
-                          <Badge variant="destructive" className="text-xs">
-                            Error
-                          </Badge>
-                        )}
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          disabled={isRescraping || link.status === "scraping"}
-                          onClick={() => rescrape(link.id)}
-                          data-testid={`button-rescrape-${link.id}`}
-                        >
-                          <RefreshCw className={`h-3 w-3 ${isRescraping ? "animate-spin" : ""}`} />
-                        </Button>
+                        <Badge variant="outline" className={`text-xs ${statusOption.color}`}>
+                          {statusOption.label}
+                        </Badge>
                       </div>
                     </div>
                   </div>
                 );
               })}
+              {remainingCount > 0 && (
+                <Link
+                  href={`/campaign/${campaign.id}`}
+                  className="block text-center text-sm text-muted-foreground hover:text-foreground transition-colors py-1"
+                  data-testid={`link-view-all-${campaign.id}`}
+                >
+                  +{remainingCount} more post{remainingCount > 1 ? "s" : ""} - View all
+                </Link>
+              )}
             </div>
           )}
         </div>
