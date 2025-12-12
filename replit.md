@@ -90,10 +90,11 @@ shared/
 ## API Endpoints
 
 ### Campaign Endpoints
-- `GET /api/campaigns` - Get all campaigns with aggregated stats
-- `POST /api/campaigns` - Create new campaign
+- `GET /api/campaigns` - Get all campaigns for current user with aggregated stats
+- `POST /api/campaigns` - Create new campaign (owner_id set from session)
+- `DELETE /api/campaigns/:id` - Delete campaign with cascading deletion of social links and engagement history
 - `POST /api/campaigns/:id/rescrape-all` - Batch rescrape all posts in a campaign
-- `GET /api/social-links` - Get all social links
+- `GET /api/social-links` - Get all social links for user's campaigns
 - `POST /api/social-links` - Add new social link with optional creatorName (triggers scraping)
 - `PATCH /api/social-links/:id` - Update post status, creator name, URL, and engagement metrics (views, likes, comments, shares)
 - `DELETE /api/social-links/:id` - Remove creator/post from campaign (authenticated, cascades to engagement history)
@@ -162,6 +163,9 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Added campaign deletion with confirmation modal - delete from Dashboard cards or CampaignDetail page header, cascades to remove all posts and engagement history
+- 2025-12-12: Added campaign ownership system with owner_id column - campaigns are now scoped to users with access control on all routes
+- 2025-12-12: Fixed email delivery - verification codes and password reset emails now properly sent via Resend API
 - 2025-12-12: Added retry logic with exponential backoff for Apify scrapers (3 attempts, 1s→2s→4s delays for TikTok/Instagram)
 - 2025-12-12: Enhanced skeleton loading states for Dashboard and CampaignDetail pages to match actual content layouts
 - 2025-12-12: Added pagination to creators table (10 items per page with navigation controls)

@@ -72,11 +72,13 @@ import {
   useRescrapeAllCampaignLinks,
   useUpdateSocialLink,
   useDeleteSocialLink,
+  useDeleteCampaign,
   useUpdateCampaignStatus,
   useCampaignEngagementHistory,
   type SocialLink,
   type PostStatus,
 } from "@/hooks/useCampaigns";
+import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import {
   LineChart,
@@ -535,6 +537,7 @@ type MetricVisibility = {
 
 export default function CampaignDetail() {
   const [, params] = useRoute("/campaign/:id");
+  const [, setLocation] = useLocation();
   const campaignId = params?.id ? parseInt(params.id, 10) : null;
 
   const [addCreatorOpen, setAddCreatorOpen] = useState(false);
@@ -543,6 +546,7 @@ export default function CampaignDetail() {
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
   const [importing, setImporting] = useState(false);
   const [linkToDelete, setLinkToDelete] = useState<SocialLink | null>(null);
+  const [deleteCampaignOpen, setDeleteCampaignOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const [visibleMetrics, setVisibleMetrics] = useState<MetricVisibility>({
@@ -557,6 +561,7 @@ export default function CampaignDetail() {
   const { data: engagementHistory, isLoading: historyLoading } = useCampaignEngagementHistory(campaignId || 0);
   const { mutate: updateLink } = useUpdateSocialLink();
   const { mutate: deleteLink, isPending: isDeleting } = useDeleteSocialLink();
+  const deleteCampaignMutation = useDeleteCampaign();
   const { mutate: rescrape, isPending: isRescraping } = useRescrapeSocialLink();
   const { mutate: rescrapeAll, isPending: isScrapingAll } = useRescrapeAllCampaignLinks();
   const { mutate: updateCampaignStatus } = useUpdateCampaignStatus();
@@ -604,6 +609,26 @@ export default function CampaignDetail() {
 
   const toggleMetric = (metric: keyof MetricVisibility) => {
     setVisibleMetrics(prev => ({ ...prev, [metric]: !prev[metric] }));
+  };
+
+  const handleDeleteCampaign = async () => {
+    if (!campaign) return;
+    try {
+      await deleteCampaignMutation.mutateAsync(campaign.id);
+      toast({
+        title: "Campaign deleted",
+        description: `"${campaign.name}" has been permanently removed.`,
+      });
+      setDeleteCampaignOpen(false);
+      setLocation("/");
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete campaign. Please try again.",
+        variant: "destructive",
+      });
+      // Keep modal open so user can retry
+    }
   };
 
   const handleScrapeAll = () => {
@@ -828,6 +853,16 @@ export default function CampaignDetail() {
               >
                 <Lock className="h-4 w-4 mr-2" />
                 Share
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setDeleteCampaignOpen(true)}
+                className="text-destructive hover:text-destructive"
+                data-testid="button-delete-campaign"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
               </Button>
               <Select
                 value={campaign.status}
@@ -1380,6 +1415,36 @@ export default function CampaignDetail() {
                 </>
               ) : (
                 "Remove"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={deleteCampaignOpen} onOpenChange={setDeleteCampaignOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove "{campaign.name}" and all its creators/posts.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete-campaign">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDeleteCampaign}
+              disabled={deleteCampaignMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-campaign"
+            >
+              {deleteCampaignMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
               )}
             </AlertDialogAction>
           </AlertDialogFooter>

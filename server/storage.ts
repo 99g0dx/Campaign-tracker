@@ -34,11 +34,13 @@ export interface IStorage {
   updateUserResetToken(id: string, resetToken: string | null, resetTokenExpiresAt: Date | null): Promise<User | undefined>;
   
   // Campaigns
-  getCampaigns(): Promise<Campaign[]>;
-  getCampaignsWithStats(): Promise<CampaignWithStats[]>;
+  getCampaigns(ownerId: string): Promise<Campaign[]>;
+  getCampaignsWithStats(ownerId: string): Promise<CampaignWithStats[]>;
   getCampaign(id: number): Promise<Campaign | undefined>;
+  getCampaignForOwner(id: number, ownerId: string): Promise<Campaign | undefined>;
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
   updateCampaignStatus(id: number, status: string): Promise<Campaign | undefined>;
+  deleteCampaign(id: number, ownerId: string): Promise<boolean>;
   
   // Social Links
   getSocialLinks(): Promise<SocialLink[]>;
@@ -73,9 +75,6 @@ export interface IStorage {
   
   // Search creator names from existing social links
   searchCreatorNamesFromLinks(query: string): Promise<{ creatorName: string; platform: string }[]>;
-  
-  // Seeding
-  seedDataIfEmpty(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -196,12 +195,14 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getCampaigns(): Promise<Campaign[]> {
-    return await db.select().from(campaigns).orderBy(desc(campaigns.createdAt));
+  async getCampaigns(ownerId: string): Promise<Campaign[]> {
+    return await db.select().from(campaigns)
+      .where(eq(campaigns.ownerId, ownerId))
+      .orderBy(desc(campaigns.createdAt));
   }
 
-  async getCampaignsWithStats(): Promise<CampaignWithStats[]> {
-    const allCampaigns = await this.getCampaigns();
+  async getCampaignsWithStats(ownerId: string): Promise<CampaignWithStats[]> {
+    const allCampaigns = await this.getCampaigns(ownerId);
     const allLinks = await this.getSocialLinks();
     
     return allCampaigns.map((campaign) => {
@@ -228,6 +229,12 @@ export class DatabaseStorage implements IStorage {
     return campaign;
   }
 
+  async getCampaignForOwner(id: number, ownerId: string): Promise<Campaign | undefined> {
+    const [campaign] = await db.select().from(campaigns)
+      .where(and(eq(campaigns.id, id), eq(campaigns.ownerId, ownerId)));
+    return campaign;
+  }
+
   async createCampaign(campaign: InsertCampaign): Promise<Campaign> {
     const [newCampaign] = await db.insert(campaigns).values(campaign).returning();
     return newCampaign;
@@ -239,6 +246,35 @@ export class DatabaseStorage implements IStorage {
       .where(eq(campaigns.id, id))
       .returning();
     return updated;
+  }
+
+  async deleteCampaign(id: number, ownerId: string): Promise<boolean> {
+    // First verify ownership
+    const campaign = await this.getCampaignForOwner(id, ownerId);
+    if (!campaign) {
+      return false;
+    }
+
+    // Get all social links for this campaign
+    const links = await this.getSocialLinksByCampaign(id);
+    const linkIds = links.map(l => l.id);
+
+    // Delete engagement history for all links
+    if (linkIds.length > 0) {
+      await db.delete(engagementHistory)
+        .where(inArray(engagementHistory.socialLinkId, linkIds));
+    }
+
+    // Delete all social links for this campaign
+    await db.delete(socialLinks)
+      .where(eq(socialLinks.campaignId, id));
+
+    // Delete the campaign
+    const deleted = await db.delete(campaigns)
+      .where(and(eq(campaigns.id, id), eq(campaigns.ownerId, ownerId)))
+      .returning();
+
+    return deleted.length > 0;
   }
 
   async getSocialLinks(): Promise<SocialLink[]> {
@@ -420,33 +456,6 @@ export class DatabaseStorage implements IStorage {
     }));
   }
 
-  async seedDataIfEmpty(): Promise<void> {
-    const existingCampaigns = await db.select().from(campaigns).limit(1);
-
-    if (existingCampaigns.length === 0) {
-      console.log("Seeding sample campaigns...");
-      await db.insert(campaigns).values([
-        {
-          name: "Summer Vibes Launch",
-          songTitle: "Summertime",
-          songArtist: "DJ Sunny",
-          status: "Active",
-        },
-        {
-          name: "Viral Dance Challenge",
-          songTitle: "Move It",
-          songArtist: "Beat Master",
-          status: "Active",
-        },
-        {
-          name: "Holiday Special",
-          songTitle: "Jingle Beats",
-          songArtist: "Winter Sound",
-          status: "Completed",
-        },
-      ]);
-    }
-  }
 }
 
 export const storage = new DatabaseStorage();

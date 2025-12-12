@@ -6,6 +6,7 @@ import { z } from "zod";
 // Campaigns table - simplified to track song campaigns
 export const campaigns = pgTable("campaigns", {
   id: serial("id").primaryKey(),
+  ownerId: varchar("owner_id").notNull(),  // user who owns this campaign
   name: text("name").notNull(),
   songTitle: text("song_title").notNull(),
   songArtist: text("song_artist"),

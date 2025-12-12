@@ -19,10 +19,21 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -39,6 +50,8 @@ import {
   Filter,
   ChevronRight,
   LogOut,
+  MoreVertical,
+  Trash2,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -46,6 +59,7 @@ import {
   useAddCampaign,
   useSocialLinks,
   useAddSocialLink,
+  useDeleteCampaign,
   type Campaign,
   type SocialLink,
   type PostStatus,
@@ -90,10 +104,12 @@ function CampaignCard({
   campaign,
   socialLinks,
   onAddLink,
+  onDelete,
 }: {
   campaign: Campaign;
   socialLinks: SocialLink[];
   onAddLink: (campaignId: number) => void;
+  onDelete: (campaign: Campaign) => void;
 }) {
   const campaignLinks = socialLinks.filter((l) => l.campaignId === campaign.id);
   const displayedLinks = campaignLinks.slice(0, 3);
@@ -117,12 +133,37 @@ function CampaignCard({
             </div>
           </div>
         </Link>
-        <Badge
-          variant={campaign.status === "Active" ? "default" : "secondary"}
-          className="shrink-0"
-        >
-          {campaign.status}
-        </Badge>
+        <div className="flex items-center gap-2">
+          <Badge
+            variant={campaign.status === "Active" ? "default" : "secondary"}
+            className="shrink-0"
+          >
+            {campaign.status}
+          </Badge>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="icon" variant="ghost" data-testid={`button-campaign-menu-${campaign.id}`}>
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem asChild>
+                <Link href={`/campaign/${campaign.id}`} className="cursor-pointer">
+                  View Details
+                </Link>
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => onDelete(campaign)}
+                data-testid={`button-delete-campaign-${campaign.id}`}
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete Campaign
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -364,11 +405,40 @@ export default function Dashboard() {
   const [selectedCampaignId, setSelectedCampaignId] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>("name");
   const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
+  const [deleteModalOpen, setDeleteModalOpen] = useState(false);
+  const [campaignToDelete, setCampaignToDelete] = useState<Campaign | null>(null);
 
+  const { toast } = useToast();
   const { user, logout } = useAuth();
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
   const { mutateAsync: addCampaign } = useAddCampaign();
+  const deleteCampaignMutation = useDeleteCampaign();
+
+  const handleDeleteCampaign = (campaign: Campaign) => {
+    setCampaignToDelete(campaign);
+    setDeleteModalOpen(true);
+  };
+
+  const confirmDeleteCampaign = async () => {
+    if (!campaignToDelete) return;
+    try {
+      await deleteCampaignMutation.mutateAsync(campaignToDelete.id);
+      toast({
+        title: "Campaign deleted",
+        description: `"${campaignToDelete.name}" has been permanently removed.`,
+      });
+      setDeleteModalOpen(false);
+      setCampaignToDelete(null);
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete campaign. Please try again.",
+        variant: "destructive",
+      });
+      // Keep modal open so user can retry
+    }
+  };
 
   const filteredAndSortedCampaigns = campaigns
     ?.filter((campaign) => {
@@ -585,6 +655,7 @@ export default function Dashboard() {
                   campaign={campaign}
                   socialLinks={socialLinks || []}
                   onAddLink={handleAddLink}
+                  onDelete={handleDeleteCampaign}
                 />
               ))}
             </div>
@@ -631,6 +702,36 @@ export default function Dashboard() {
         campaignId={selectedCampaignId}
         campaigns={campaigns || []}
       />
+
+      <AlertDialog open={deleteModalOpen} onOpenChange={setDeleteModalOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete campaign?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently remove "{campaignToDelete?.name}" and all its links/posts.
+              This action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDeleteCampaign}
+              disabled={deleteCampaignMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete"
+            >
+              {deleteCampaignMutation.isPending ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

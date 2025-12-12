@@ -98,13 +98,14 @@ export async function registerRoutes(
   // Profile routes for KYC verification (requires authentication)
   app.use("/api/profile", requireUser, profileRoutes);
 
-  // Seed data on startup
-  await storage.seedDataIfEmpty();
-
-  // Get all campaigns with aggregated stats
-  app.get("/api/campaigns", requireUser, async (_req, res) => {
+  // Get all campaigns with aggregated stats (scoped to user)
+  app.get("/api/campaigns", requireUser, async (req: any, res) => {
     try {
-      const campaigns = await storage.getCampaignsWithStats();
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      const campaigns = await storage.getCampaignsWithStats(userId);
       res.json(campaigns);
     } catch (error) {
       console.error("Failed to fetch campaigns:", error);
@@ -112,14 +113,18 @@ export async function registerRoutes(
     }
   });
 
-  // Get a single campaign
-  app.get("/api/campaigns/:id", requireUser, async (req, res) => {
+  // Get a single campaign (verify ownership)
+  app.get("/api/campaigns/:id", requireUser, async (req: any, res) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
         return res.status(400).json({ error: "Invalid campaign ID" });
       }
-      const campaign = await storage.getCampaign(id);
+      const campaign = await storage.getCampaignForOwner(id, userId);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -131,9 +136,13 @@ export async function registerRoutes(
   });
 
   // Create a new campaign
-  app.post("/api/campaigns", requireUser, async (req, res) => {
+  app.post("/api/campaigns", requireUser, async (req: any, res) => {
     try {
-      const parsed = insertCampaignSchema.safeParse(req.body);
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      const parsed = insertCampaignSchema.safeParse({ ...req.body, ownerId: userId });
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.errors });
       }
@@ -145,12 +154,44 @@ export async function registerRoutes(
     }
   });
 
-  // Update campaign status
-  app.patch("/api/campaigns/:id/status", requireUser, async (req, res) => {
+  // Delete a campaign (verify ownership)
+  app.delete("/api/campaigns/:id", requireUser, async (req: any, res) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
         return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+      const deleted = await storage.deleteCampaign(id, userId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Campaign not found or access denied" });
+      }
+      res.json({ success: true, message: "Campaign deleted successfully" });
+    } catch (error) {
+      console.error("Failed to delete campaign:", error);
+      res.status(500).json({ error: "Failed to delete campaign" });
+    }
+  });
+
+  // Update campaign status (verify ownership)
+  app.patch("/api/campaigns/:id/status", requireUser, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      // Verify ownership
+      const campaign = await storage.getCampaignForOwner(id, userId);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
       }
 
       const statusSchema = z.object({
@@ -162,11 +203,8 @@ export async function registerRoutes(
         return res.status(400).json({ error: parsed.error.errors });
       }
 
-      const campaign = await storage.updateCampaignStatus(id, parsed.data.status);
-      if (!campaign) {
-        return res.status(404).json({ error: "Campaign not found" });
-      }
-      res.json(campaign);
+      const updated = await storage.updateCampaignStatus(id, parsed.data.status);
+      res.json(updated);
     } catch (error) {
       console.error("Failed to update campaign status:", error);
       res.status(500).json({ error: "Failed to update campaign status" });
@@ -343,15 +381,19 @@ export async function registerRoutes(
     }
   });
 
-  // Rescrape all social links for a campaign
-  app.post("/api/campaigns/:id/rescrape-all", requireUser, async (req, res) => {
+  // Rescrape all social links for a campaign (verify ownership)
+  app.post("/api/campaigns/:id/rescrape-all", requireUser, async (req: any, res) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
         return res.status(400).json({ error: "Invalid campaign ID" });
       }
 
-      const campaign = await storage.getCampaign(id);
+      const campaign = await storage.getCampaignForOwner(id, userId);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -410,15 +452,19 @@ export async function registerRoutes(
     }
   });
 
-  // Get campaign engagement history for charts
-  app.get("/api/campaigns/:id/engagement-history", requireUser, async (req, res) => {
+  // Get campaign engagement history for charts (verify ownership)
+  app.get("/api/campaigns/:id/engagement-history", requireUser, async (req: any, res) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
         return res.status(400).json({ error: "Invalid campaign ID" });
       }
       
-      const campaign = await storage.getCampaign(id);
+      const campaign = await storage.getCampaignForOwner(id, userId);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -556,9 +602,13 @@ export async function registerRoutes(
 
   // ==================== CAMPAIGN SHARING ROUTES ====================
   
-  // Enable or update share settings for a campaign
-  app.post("/api/campaigns/:id/share", requireUser, async (req, res) => {
+  // Enable or update share settings for a campaign (verify ownership)
+  app.post("/api/campaigns/:id/share", requireUser, async (req: any, res) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
         return res.status(400).json({ error: "Invalid campaign ID" });
@@ -576,7 +626,7 @@ export async function registerRoutes(
 
       const { enable, password } = parsed.data;
       
-      const campaign = await storage.getCampaign(id);
+      const campaign = await storage.getCampaignForOwner(id, userId);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -618,15 +668,19 @@ export async function registerRoutes(
     }
   });
 
-  // Get share status for a campaign
-  app.get("/api/campaigns/:id/share", requireUser, async (req, res) => {
+  // Get share status for a campaign (verify ownership)
+  app.get("/api/campaigns/:id/share", requireUser, async (req: any, res) => {
     try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
         return res.status(400).json({ error: "Invalid campaign ID" });
       }
 
-      const campaign = await storage.getCampaign(id);
+      const campaign = await storage.getCampaignForOwner(id, userId);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }
@@ -1056,10 +1110,10 @@ export async function registerRoutes(
 
   // ==================== CSV IMPORT ROUTES ====================
 
-  // Import posts from CSV for a campaign
+  // Import posts from CSV for a campaign (verify ownership)
   app.post("/api/campaigns/:id/import-posts", requireUser, upload.single("file"), async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = req.session?.userId;
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1073,7 +1127,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      const campaign = await storage.getCampaign(campaignId);
+      const campaign = await storage.getCampaignForOwner(campaignId, userId);
       if (!campaign) {
         return res.status(404).json({ error: "Campaign not found" });
       }

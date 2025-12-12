@@ -175,6 +175,20 @@ export function useRescrapeAllCampaignLinks() {
   });
 }
 
+export function useDeleteCampaign() {
+  return useMutation({
+    mutationFn: async (id: number) => {
+      const response = await apiRequest("DELETE", `/api/campaigns/${id}`);
+      return { ...(await response.json()), deletedId: id };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", data.deletedId, "engagement-history"] });
+    },
+  });
+}
+
 export interface EngagementHistoryPoint {
   date: string;
   views: number;
