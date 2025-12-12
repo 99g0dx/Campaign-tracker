@@ -4,9 +4,58 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
 import { Music, Loader2, AlertCircle } from "lucide-react";
+
+const COUNTRY_CODES = [
+  { code: "+1", country: "US/CA", flag: "US" },
+  { code: "+44", country: "UK", flag: "GB" },
+  { code: "+33", country: "France", flag: "FR" },
+  { code: "+49", country: "Germany", flag: "DE" },
+  { code: "+39", country: "Italy", flag: "IT" },
+  { code: "+34", country: "Spain", flag: "ES" },
+  { code: "+31", country: "Netherlands", flag: "NL" },
+  { code: "+32", country: "Belgium", flag: "BE" },
+  { code: "+41", country: "Switzerland", flag: "CH" },
+  { code: "+43", country: "Austria", flag: "AT" },
+  { code: "+46", country: "Sweden", flag: "SE" },
+  { code: "+47", country: "Norway", flag: "NO" },
+  { code: "+45", country: "Denmark", flag: "DK" },
+  { code: "+358", country: "Finland", flag: "FI" },
+  { code: "+48", country: "Poland", flag: "PL" },
+  { code: "+351", country: "Portugal", flag: "PT" },
+  { code: "+353", country: "Ireland", flag: "IE" },
+  { code: "+61", country: "Australia", flag: "AU" },
+  { code: "+64", country: "New Zealand", flag: "NZ" },
+  { code: "+81", country: "Japan", flag: "JP" },
+  { code: "+82", country: "South Korea", flag: "KR" },
+  { code: "+86", country: "China", flag: "CN" },
+  { code: "+91", country: "India", flag: "IN" },
+  { code: "+65", country: "Singapore", flag: "SG" },
+  { code: "+852", country: "Hong Kong", flag: "HK" },
+  { code: "+55", country: "Brazil", flag: "BR" },
+  { code: "+52", country: "Mexico", flag: "MX" },
+  { code: "+54", country: "Argentina", flag: "AR" },
+  { code: "+27", country: "South Africa", flag: "ZA" },
+  { code: "+971", country: "UAE", flag: "AE" },
+  { code: "+966", country: "Saudi Arabia", flag: "SA" },
+  { code: "+972", country: "Israel", flag: "IL" },
+  { code: "+7", country: "Russia", flag: "RU" },
+  { code: "+90", country: "Turkey", flag: "TR" },
+  { code: "+62", country: "Indonesia", flag: "ID" },
+  { code: "+60", country: "Malaysia", flag: "MY" },
+  { code: "+63", country: "Philippines", flag: "PH" },
+  { code: "+66", country: "Thailand", flag: "TH" },
+  { code: "+84", country: "Vietnam", flag: "VN" },
+];
 
 export default function Signup() {
   const [, setLocation] = useLocation();
@@ -15,7 +64,8 @@ export default function Signup() {
 
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
+  const [countryCode, setCountryCode] = useState("+1");
+  const [phoneNumber, setPhoneNumber] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -49,7 +99,7 @@ export default function Signup() {
         email: email.trim(),
         password,
         fullName: fullName.trim() || undefined,
-        phone: phone.trim() || undefined,
+        phone: phoneNumber.trim() ? `${countryCode} ${phoneNumber.trim()}` : undefined,
       });
       if (result.ok) {
         toast({
@@ -105,15 +155,30 @@ export default function Signup() {
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone (optional)</Label>
-              <Input
-                id="phone"
-                type="tel"
-                placeholder="+1 (555) 123-4567"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                autoComplete="tel"
-                data-testid="input-phone"
-              />
+              <div className="flex gap-2">
+                <Select value={countryCode} onValueChange={setCountryCode}>
+                  <SelectTrigger className="w-[100px]" data-testid="select-country-code">
+                    <SelectValue placeholder="Code" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {COUNTRY_CODES.map((country) => (
+                      <SelectItem key={country.code} value={country.code}>
+                        {country.code} {country.country}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="(555) 123-4567"
+                  value={phoneNumber}
+                  onChange={(e) => setPhoneNumber(e.target.value)}
+                  autoComplete="tel"
+                  className="flex-1"
+                  data-testid="input-phone"
+                />
+              </div>
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
