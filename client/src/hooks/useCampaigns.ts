@@ -131,6 +131,21 @@ export function useRescrapeSocialLink() {
   });
 }
 
+export function useRescrapeAllCampaignLinks() {
+  return useMutation({
+    mutationFn: async (campaignId: number) => {
+      const response = await apiRequest("POST", `/api/campaigns/${campaignId}/rescrape-all`, {});
+      const data = await response.json();
+      return { ...data, campaignId };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", data.campaignId, "engagement-history"] });
+    },
+  });
+}
+
 export interface EngagementHistoryPoint {
   date: string;
   views: number;

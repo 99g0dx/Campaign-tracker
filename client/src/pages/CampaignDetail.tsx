@@ -45,12 +45,15 @@ import {
   TrendingDown,
   BarChart3,
   Pencil,
+  Download,
 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   useCampaigns,
   useSocialLinks,
   useAddSocialLink,
   useRescrapeSocialLink,
+  useRescrapeAllCampaignLinks,
   useUpdateSocialLink,
   useCampaignEngagementHistory,
   type SocialLink,
@@ -420,6 +423,13 @@ const TIME_RANGE_OPTIONS: { value: TimeRange; label: string; days: number }[] = 
   { value: "90d", label: "90 days", days: 90 },
 ];
 
+type MetricVisibility = {
+  views: boolean;
+  likes: boolean;
+  comments: boolean;
+  shares: boolean;
+};
+
 export default function CampaignDetail() {
   const [, params] = useRoute("/campaign/:id");
   const campaignId = params?.id ? parseInt(params.id, 10) : null;
@@ -427,12 +437,20 @@ export default function CampaignDetail() {
   const [addCreatorOpen, setAddCreatorOpen] = useState(false);
   const [editLink, setEditLink] = useState<SocialLink | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
+  const [visibleMetrics, setVisibleMetrics] = useState<MetricVisibility>({
+    views: true,
+    likes: true,
+    comments: true,
+    shares: true,
+  });
 
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
   const { data: engagementHistory, isLoading: historyLoading } = useCampaignEngagementHistory(campaignId || 0);
   const { mutate: updateLink } = useUpdateSocialLink();
   const { mutate: rescrape, isPending: isRescraping } = useRescrapeSocialLink();
+  const { mutate: rescrapeAll, isPending: isScrapingAll } = useRescrapeAllCampaignLinks();
+  const { toast } = useToast();
 
   const campaign = campaigns?.find((c) => c.id === campaignId);
   const campaignLinks = socialLinks?.filter((l) => l.campaignId === campaignId) || [];
@@ -460,6 +478,65 @@ export default function CampaignDetail() {
   };
   
   const trend = getEngagementTrend();
+
+  const toggleMetric = (metric: keyof MetricVisibility) => {
+    setVisibleMetrics(prev => ({ ...prev, [metric]: !prev[metric] }));
+  };
+
+  const handleScrapeAll = () => {
+    if (!campaignId) return;
+    rescrapeAll(campaignId, {
+      onSuccess: (data: any) => {
+        toast({ 
+          title: "Scraping started", 
+          description: `Scraping ${data.scraped} posts...` 
+        });
+      },
+      onError: (error: Error) => {
+        toast({
+          title: "Failed to scrape",
+          description: error.message,
+          variant: "destructive",
+        });
+      },
+    });
+  };
+
+  const downloadCSV = () => {
+    if (!campaign || campaignLinks.length === 0) return;
+
+    const headers = ["Creator", "Platform", "URL", "Status", "Views", "Likes", "Comments", "Shares", "Last Scraped"];
+    const rows = campaignLinks.map(link => [
+      link.creatorName || "Unknown",
+      link.url.startsWith("placeholder://") ? "N/A" : link.platform,
+      link.url.startsWith("placeholder://") ? "" : link.url,
+      link.postStatus,
+      link.views ?? 0,
+      link.likes ?? 0,
+      link.comments ?? 0,
+      link.shares ?? 0,
+      link.lastScrapedAt ? new Date(link.lastScrapedAt).toLocaleString() : "Never",
+    ]);
+
+    const csvContent = [
+      headers.join(","),
+      ...rows.map(row => row.map(cell => 
+        typeof cell === "string" && (cell.includes(",") || cell.includes('"')) 
+          ? `"${cell.replace(/"/g, '""')}"` 
+          : cell
+      ).join(","))
+    ].join("\n");
+
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `${campaign.name.replace(/[^a-z0-9]/gi, "_")}_data.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   const handleStatusChange = (linkId: number, newStatus: PostStatus) => {
     updateLink({ id: linkId, postStatus: newStatus });
@@ -610,32 +687,81 @@ export default function CampaignDetail() {
         </div>
 
         <Card data-testid="card-engagement-chart">
-          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <CardTitle>Engagement Trends</CardTitle>
-              {trend && (
-                <Badge variant={trend.isUp ? "default" : "destructive"} className="text-xs">
-                  {trend.isUp ? (
-                    <TrendingUp className="h-3 w-3 mr-1" />
-                  ) : (
-                    <TrendingDown className="h-3 w-3 mr-1" />
-                  )}
-                  {trend.isUp ? "+" : ""}{trend.pct}%
-                </Badge>
-              )}
+          <CardHeader className="flex flex-col gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3">
+                <CardTitle>Engagement Trends</CardTitle>
+                {trend && (
+                  <Badge variant={trend.isUp ? "default" : "destructive"} className="text-xs">
+                    {trend.isUp ? (
+                      <TrendingUp className="h-3 w-3 mr-1" />
+                    ) : (
+                      <TrendingDown className="h-3 w-3 mr-1" />
+                    )}
+                    {trend.isUp ? "+" : ""}{trend.pct}%
+                  </Badge>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {TIME_RANGE_OPTIONS.map((option) => (
+                  <Button
+                    key={option.value}
+                    size="sm"
+                    variant={timeRange === option.value ? "default" : "outline"}
+                    onClick={() => setTimeRange(option.value)}
+                    data-testid={`button-range-${option.value}`}
+                  >
+                    {option.label}
+                  </Button>
+                ))}
+              </div>
             </div>
-            <div className="flex flex-wrap gap-1">
-              {TIME_RANGE_OPTIONS.map((option) => (
-                <Button
-                  key={option.value}
-                  size="sm"
-                  variant={timeRange === option.value ? "default" : "outline"}
-                  onClick={() => setTimeRange(option.value)}
-                  data-testid={`button-range-${option.value}`}
-                >
-                  {option.label}
-                </Button>
-              ))}
+            <div className="flex flex-wrap items-center gap-4 pt-2 border-t">
+              <span className="text-sm text-muted-foreground">Show:</span>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox 
+                  checked={visibleMetrics.views} 
+                  onCheckedChange={() => toggleMetric("views")}
+                  data-testid="checkbox-toggle-views"
+                />
+                <span className="text-sm flex items-center gap-1">
+                  <Eye className="h-3 w-3" style={{ color: 'hsl(var(--primary))' }} />
+                  Views
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox 
+                  checked={visibleMetrics.likes} 
+                  onCheckedChange={() => toggleMetric("likes")}
+                  data-testid="checkbox-toggle-likes"
+                />
+                <span className="text-sm flex items-center gap-1">
+                  <Heart className="h-3 w-3" style={{ color: '#f43f5e' }} />
+                  Likes
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox 
+                  checked={visibleMetrics.comments} 
+                  onCheckedChange={() => toggleMetric("comments")}
+                  data-testid="checkbox-toggle-comments"
+                />
+                <span className="text-sm flex items-center gap-1">
+                  <MessageCircle className="h-3 w-3" style={{ color: '#8b5cf6' }} />
+                  Comments
+                </span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox 
+                  checked={visibleMetrics.shares} 
+                  onCheckedChange={() => toggleMetric("shares")}
+                  data-testid="checkbox-toggle-shares"
+                />
+                <span className="text-sm flex items-center gap-1">
+                  <Share2 className="h-3 w-3" style={{ color: '#22c55e' }} />
+                  Shares
+                </span>
+              </label>
             </div>
           </CardHeader>
           <CardContent>
@@ -665,42 +791,50 @@ export default function CampaignDetail() {
                     formatter={(value: number) => [formatNumber(value), '']}
                   />
                   <Legend />
-                  <Line 
-                    type="monotone" 
-                    dataKey="views" 
-                    stroke="hsl(var(--primary))" 
-                    strokeWidth={2}
-                    dot={{ fill: 'hsl(var(--primary))', strokeWidth: 0, r: 3 }}
-                    activeDot={{ r: 5 }}
-                    name="Views"
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="likes" 
-                    stroke="#f43f5e" 
-                    strokeWidth={2}
-                    dot={{ fill: '#f43f5e', strokeWidth: 0, r: 3 }}
-                    activeDot={{ r: 5 }}
-                    name="Likes"
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="comments" 
-                    stroke="#8b5cf6" 
-                    strokeWidth={2}
-                    dot={{ fill: '#8b5cf6', strokeWidth: 0, r: 3 }}
-                    activeDot={{ r: 5 }}
-                    name="Comments"
-                  />
-                  <Line 
-                    type="monotone" 
-                    dataKey="shares" 
-                    stroke="#22c55e" 
-                    strokeWidth={2}
-                    dot={{ fill: '#22c55e', strokeWidth: 0, r: 3 }}
-                    activeDot={{ r: 5 }}
-                    name="Shares"
-                  />
+                  {visibleMetrics.views && (
+                    <Line 
+                      type="monotone" 
+                      dataKey="views" 
+                      stroke="hsl(var(--primary))" 
+                      strokeWidth={2}
+                      dot={{ fill: 'hsl(var(--primary))', strokeWidth: 0, r: 3 }}
+                      activeDot={{ r: 5 }}
+                      name="Views"
+                    />
+                  )}
+                  {visibleMetrics.likes && (
+                    <Line 
+                      type="monotone" 
+                      dataKey="likes" 
+                      stroke="#f43f5e" 
+                      strokeWidth={2}
+                      dot={{ fill: '#f43f5e', strokeWidth: 0, r: 3 }}
+                      activeDot={{ r: 5 }}
+                      name="Likes"
+                    />
+                  )}
+                  {visibleMetrics.comments && (
+                    <Line 
+                      type="monotone" 
+                      dataKey="comments" 
+                      stroke="#8b5cf6" 
+                      strokeWidth={2}
+                      dot={{ fill: '#8b5cf6', strokeWidth: 0, r: 3 }}
+                      activeDot={{ r: 5 }}
+                      name="Comments"
+                    />
+                  )}
+                  {visibleMetrics.shares && (
+                    <Line 
+                      type="monotone" 
+                      dataKey="shares" 
+                      stroke="#22c55e" 
+                      strokeWidth={2}
+                      dot={{ fill: '#22c55e', strokeWidth: 0, r: 3 }}
+                      activeDot={{ r: 5 }}
+                      name="Shares"
+                    />
+                  )}
                 </LineChart>
               </ResponsiveContainer>
             ) : (
@@ -716,12 +850,36 @@ export default function CampaignDetail() {
         </Card>
 
         <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4">
+          <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Creators & Posts</CardTitle>
-            <Button onClick={() => setAddCreatorOpen(true)} data-testid="button-add-creator">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Creator
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button 
+                variant="outline" 
+                onClick={handleScrapeAll} 
+                disabled={isScrapingAll || campaignLinks.length === 0}
+                data-testid="button-scrape-all"
+              >
+                {isScrapingAll ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                Scrape All
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={downloadCSV} 
+                disabled={campaignLinks.length === 0}
+                data-testid="button-download-csv"
+              >
+                <Download className="h-4 w-4 mr-2" />
+                Download CSV
+              </Button>
+              <Button onClick={() => setAddCreatorOpen(true)} data-testid="button-add-creator">
+                <Plus className="h-4 w-4 mr-2" />
+                Add Creator
+              </Button>
+            </div>
           </CardHeader>
           <CardContent>
             {campaignLinks.length === 0 ? (

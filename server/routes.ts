@@ -234,6 +234,73 @@ export async function registerRoutes(
     }
   });
 
+  // Rescrape all social links for a campaign
+  app.post("/api/campaigns/:id/rescrape-all", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      const links = await storage.getSocialLinksByCampaign(id);
+      const scrapableLinks = links.filter(l => !l.url.startsWith("placeholder://"));
+      
+      if (scrapableLinks.length === 0) {
+        return res.json({ scraped: 0, total: 0 });
+      }
+
+      // Mark all as scraping
+      await Promise.all(scrapableLinks.map(link => 
+        storage.updateSocialLink(link.id, { status: "scraping" })
+      ));
+
+      // Start scraping all in background
+      Promise.all(scrapableLinks.map(async (link) => {
+        try {
+          const result = await scrapeSocialLink(link.url);
+          if (result.success && result.data) {
+            await storage.updateSocialLink(link.id, {
+              ...result.data,
+              status: "scraped",
+              lastScrapedAt: new Date(),
+            });
+            
+            const totalEngagement = (result.data.likes || 0) + (result.data.comments || 0) + (result.data.shares || 0);
+            await storage.createEngagementSnapshot({
+              socialLinkId: link.id,
+              views: result.data.views || 0,
+              likes: result.data.likes || 0,
+              comments: result.data.comments || 0,
+              shares: result.data.shares || 0,
+              totalEngagement,
+            });
+          } else {
+            await storage.updateSocialLink(link.id, {
+              status: "error",
+              errorMessage: result.error || "Failed to scrape",
+            });
+          }
+        } catch (err: any) {
+          console.error("Batch scraping error for link", link.id, err);
+          await storage.updateSocialLink(link.id, {
+            status: "error",
+            errorMessage: err.message || "Scraping failed",
+          });
+        }
+      }));
+
+      res.json({ scraped: scrapableLinks.length, total: links.length, status: "scraping" });
+    } catch (error) {
+      console.error("Failed to batch rescrape:", error);
+      res.status(500).json({ error: "Failed to batch rescrape" });
+    }
+  });
+
   // Get campaign engagement history for charts
   app.get("/api/campaigns/:id/engagement-history", async (req, res) => {
     try {
