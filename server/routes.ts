@@ -93,7 +93,7 @@ export async function registerRoutes(
   await setupAuth(app);
 
   // Profile routes for KYC verification (requires authentication)
-  app.use("/api/profile", profileRoutes);
+  app.use("/api/profile", isAuthenticated, profileRoutes);
 
   // Seed data on startup
   await storage.seedDataIfEmpty();

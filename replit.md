@@ -154,6 +154,11 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Added retry logic with exponential backoff for Apify scrapers (3 attempts, 1s→2s→4s delays for TikTok/Instagram)
+- 2025-12-12: Enhanced skeleton loading states for Dashboard and CampaignDetail pages to match actual content layouts
+- 2025-12-12: Added pagination to creators table (10 items per page with navigation controls)
+- 2025-12-12: Implemented IP-based rate limiting for shared campaign password verification (5 max attempts, 15-minute lockout)
+- 2025-12-12: Added isAuthenticated middleware to all private API routes for security
 - 2025-12-12: Added delete creator functionality - users can remove creators/posts from campaigns with confirmation dialog
 - 2025-12-12: Enhanced Add Creator modal with autocomplete search - creators added to any campaign are now searchable when adding new creators
 - 2025-12-12: Added CSV import for campaign posts with postStatus validation and 5MB file size limit
