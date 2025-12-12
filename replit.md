@@ -74,6 +74,7 @@ shared/
 ### Campaign Endpoints
 - `GET /api/campaigns` - Get all campaigns with aggregated stats
 - `POST /api/campaigns` - Create new campaign
+- `POST /api/campaigns/:id/rescrape-all` - Batch rescrape all posts in a campaign
 - `GET /api/social-links` - Get all social links
 - `POST /api/social-links` - Add new social link with optional creatorName (triggers scraping)
 - `PATCH /api/social-links/:id` - Update post status, creator name, URL, and engagement metrics (views, likes, comments, shares)
@@ -95,6 +96,9 @@ shared/
 8. **Dashboard** - Overview of total views, engagement, posts, and active campaigns with user avatar and logout
 9. **Per-Campaign Stats** - See aggregated engagement for each campaign
 10. **Engagement Charts** - Line charts showing views, likes, comments, shares trends over time with time range filters (24hrs to 90 days)
+11. **Batch Scraping** - "Scrape All" button to rescrape engagement data for all posts in a campaign simultaneously
+12. **CSV Export** - "Download CSV" button to export campaign post data with all engagement metrics
+13. **Chart Metric Toggles** - Checkboxes to selectively show/hide views, likes, comments, shares on engagement charts
 
 ## Social Media Scraping
 The scraper uses Apify API for reliable engagement data extraction:
@@ -120,6 +124,9 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Added chart metric toggles - checkboxes to show/hide views, likes, comments, shares on engagement charts
+- 2025-12-12: Added CSV export - "Download CSV" button to export campaign post data with engagement metrics
+- 2025-12-12: Added batch scraping - "Scrape All" button to rescrape all posts in a campaign simultaneously
 - 2025-12-11: Added KYC verification flow - users must verify email before accessing campaigns
 - 2025-12-11: Added Onboarding page with profile form and email verification
 - 2025-12-11: Added Replit Auth authentication with user avatar and logout in dashboard header
