@@ -59,6 +59,8 @@ import {
   Lock,
   Upload,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import ShareCampaignModal from "@/components/ShareCampaignModal";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -541,6 +543,8 @@ export default function CampaignDetail() {
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
   const [importing, setImporting] = useState(false);
   const [linkToDelete, setLinkToDelete] = useState<SocialLink | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 10;
   const [visibleMetrics, setVisibleMetrics] = useState<MetricVisibility>({
     views: true,
     likes: true,
@@ -560,6 +564,19 @@ export default function CampaignDetail() {
 
   const campaign = campaigns?.find((c) => c.id === campaignId);
   const campaignLinks = socialLinks?.filter((l) => l.campaignId === campaignId) || [];
+
+  // Pagination calculations
+  const totalPages = Math.ceil(campaignLinks.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedLinks = campaignLinks.slice(startIndex, endIndex);
+
+  // Reset to page 1 if current page is beyond total pages
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [campaignLinks.length, currentPage, totalPages]);
 
   const selectedRangeOption = TIME_RANGE_OPTIONS.find((o) => o.value === timeRange) || TIME_RANGE_OPTIONS[2];
   const cutoffDate = new Date();
@@ -705,9 +722,53 @@ export default function CampaignDetail() {
     return (
       <div className="min-h-screen bg-background">
         <div className="container mx-auto max-w-6xl p-4 md:p-6 space-y-6">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-32" />
-          <Skeleton className="h-64" />
+          <div className="flex items-center gap-4">
+            <Skeleton className="h-9 w-24" />
+            <Skeleton className="h-8 w-48" />
+          </div>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <div className="space-y-2">
+                <Skeleton className="h-7 w-40" />
+                <Skeleton className="h-5 w-56" />
+              </div>
+              <Skeleton className="h-6 w-16 rounded-full" />
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                {[1, 2, 3, 4].map((i) => (
+                  <div key={i} className="space-y-2">
+                    <Skeleton className="h-4 w-16" />
+                    <Skeleton className="h-8 w-20" />
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <Skeleton className="h-6 w-32" />
+            </CardHeader>
+            <CardContent>
+              <Skeleton className="h-64 w-full" />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4">
+              <Skeleton className="h-6 w-32" />
+              <div className="flex gap-2">
+                <Skeleton className="h-9 w-24" />
+                <Skeleton className="h-9 w-24" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <Skeleton key={i} className="h-14 w-full" />
+                ))}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     );
@@ -1109,7 +1170,7 @@ export default function CampaignDetail() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {campaignLinks.map((link) => {
+                    {paginatedLinks.map((link) => {
                       const isPlaceholder = link.url.startsWith("placeholder://");
                       const statusOption = POST_STATUS_OPTIONS.find((o) => o.value === link.postStatus) || POST_STATUS_OPTIONS[0];
 
@@ -1237,6 +1298,38 @@ export default function CampaignDetail() {
                     })}
                   </TableBody>
                 </Table>
+                {totalPages > 1 && (
+                  <div className="flex items-center justify-between gap-4 pt-4 border-t mt-4">
+                    <p className="text-sm text-muted-foreground">
+                      Showing {startIndex + 1}-{Math.min(endIndex, campaignLinks.length)} of {campaignLinks.length} creators
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        data-testid="button-prev-page"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                        Previous
+                      </Button>
+                      <span className="text-sm text-muted-foreground px-2">
+                        Page {currentPage} of {totalPages}
+                      </span>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={currentPage === totalPages}
+                        data-testid="button-next-page"
+                      >
+                        Next
+                        <ChevronRight className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>

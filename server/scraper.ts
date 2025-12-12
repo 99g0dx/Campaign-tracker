@@ -16,6 +16,44 @@ interface ScrapeResult {
 
 const APIFY_API_TOKEN = process.env.APIFY_API_TOKEN;
 
+// Retry logic with exponential backoff
+async function withRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries: number = 3,
+  baseDelayMs: number = 1000,
+  shouldRetry?: (result: T) => boolean
+): Promise<T> {
+  let lastResult: T;
+  
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      lastResult = await fn();
+      
+      // If we have a custom retry condition, check it
+      if (shouldRetry && shouldRetry(lastResult)) {
+        if (attempt < maxRetries - 1) {
+          const delay = baseDelayMs * Math.pow(2, attempt);
+          console.log(`Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+      
+      return lastResult;
+    } catch (error) {
+      if (attempt < maxRetries - 1) {
+        const delay = baseDelayMs * Math.pow(2, attempt);
+        console.log(`Error on attempt ${attempt + 1}/${maxRetries}, retrying after ${delay}ms:`, error);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      } else {
+        throw error;
+      }
+    }
+  }
+  
+  return lastResult!;
+}
+
 function detectPlatform(url: string): string | null {
   const urlLower = url.toLowerCase();
   if (urlLower.includes("tiktok.com")) return "TikTok";
@@ -395,15 +433,47 @@ export async function scrapeSocialLink(url: string): Promise<ScrapeResult> {
   
   const postId = extractPostId(url, platform);
   
+  // Determine if result should trigger a retry (temporary failures)
+  const shouldRetryResult = (result: ScrapeResult): boolean => {
+    if (result.success) return false;
+    // Retry on network/server errors, not on permanent errors
+    const permanentErrors = [
+      "not configured",
+      "credit limit",
+      "private or deleted",
+      "authentication required",
+      "requires authentication",
+      "API subscription",
+      "paid API access",
+    ];
+    const errorLower = (result.error || "").toLowerCase();
+    return !permanentErrors.some(err => errorLower.includes(err.toLowerCase()));
+  };
+  
   switch (platform) {
     case "TikTok":
-      return scrapeTikTokWithApify(url, postId);
+      return withRetry(
+        () => scrapeTikTokWithApify(url, postId),
+        3,
+        1000,
+        shouldRetryResult
+      );
     case "Instagram":
-      return scrapeInstagramWithApify(url, postId);
+      return withRetry(
+        () => scrapeInstagramWithApify(url, postId),
+        3,
+        1000,
+        shouldRetryResult
+      );
     case "Twitter":
       return scrapeTwitter(url, postId);
     case "YouTube":
-      return scrapeYouTube(url, postId);
+      return withRetry(
+        () => scrapeYouTube(url, postId),
+        2,
+        500,
+        shouldRetryResult
+      );
     case "Facebook":
       return scrapeFacebook(url, postId);
     default:
