@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { storage } from "./storage";
 import { z } from "zod";
+import { sendVerificationEmail, sendPasswordResetEmail } from "./email";
 
 const router = Router();
 
@@ -71,6 +72,14 @@ router.post("/signup", async (req, res) => {
       verificationCode,
       verificationExpiresAt,
     });
+
+    // Send verification email
+    try {
+      await sendVerificationEmail(normalizedEmail, verificationCode);
+    } catch (emailError) {
+      console.error("Failed to send verification email:", emailError);
+      // Continue with signup even if email fails - user can resend later
+    }
 
     req.session.regenerate((err) => {
       if (err) {
@@ -235,6 +244,14 @@ router.post("/resend-code", async (req, res) => {
       verificationExpiresAt,
     });
 
+    // Send verification email
+    try {
+      await sendVerificationEmail(user.email, verificationCode);
+    } catch (emailError) {
+      console.error("Failed to send verification email:", emailError);
+      return res.status(500).json({ error: "Failed to send verification email" });
+    }
+
     res.json({ ok: true });
   } catch (error) {
     console.error("Resend code error:", error);
@@ -258,10 +275,17 @@ router.post("/forgot-password", async (req, res) => {
 
       await storage.updateUserResetToken(user.id, resetToken, resetTokenExpiresAt);
 
-      const protocol = process.env.NODE_ENV === "production" ? "https" : "http";
-      const host = process.env.REPL_SLUG ? `${process.env.REPL_SLUG}.${process.env.REPL_OWNER}.repl.co` : "localhost:5000";
+      const host = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0] || "localhost:5000";
+      const protocol = host.includes("localhost") ? "http" : "https";
       const resetUrl = `${protocol}://${host}/reset-password?token=${resetToken}`;
       
+      // Send password reset email
+      try {
+        await sendPasswordResetEmail(user.email, resetUrl);
+      } catch (emailError) {
+        console.error("Failed to send password reset email:", emailError);
+        // Don't reveal whether the email exists for security
+      }
     }
 
     res.json({ ok: true });
