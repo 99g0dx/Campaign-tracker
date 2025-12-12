@@ -34,6 +34,7 @@ export interface IStorage {
   getCampaignsWithStats(): Promise<CampaignWithStats[]>;
   getCampaign(id: number): Promise<Campaign | undefined>;
   createCampaign(campaign: InsertCampaign): Promise<Campaign>;
+  updateCampaignStatus(id: number, status: string): Promise<Campaign | undefined>;
   
   // Social Links
   getSocialLinks(): Promise<SocialLink[]>;
@@ -200,6 +201,14 @@ export class DatabaseStorage implements IStorage {
   async createCampaign(campaign: InsertCampaign): Promise<Campaign> {
     const [newCampaign] = await db.insert(campaigns).values(campaign).returning();
     return newCampaign;
+  }
+
+  async updateCampaignStatus(id: number, status: string): Promise<Campaign | undefined> {
+    const [updated] = await db.update(campaigns)
+      .set({ status })
+      .where(eq(campaigns.id, id))
+      .returning();
+    return updated;
   }
 
   async getSocialLinks(): Promise<SocialLink[]> {

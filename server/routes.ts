@@ -67,6 +67,34 @@ export async function registerRoutes(
     }
   });
 
+  // Update campaign status
+  app.patch("/api/campaigns/:id/status", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      const statusSchema = z.object({
+        status: z.enum(["Active", "Completed"]),
+      });
+
+      const parsed = statusSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+
+      const campaign = await storage.updateCampaignStatus(id, parsed.data.status);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      res.json(campaign);
+    } catch (error) {
+      console.error("Failed to update campaign status:", error);
+      res.status(500).json({ error: "Failed to update campaign status" });
+    }
+  });
+
   // Get all social links
   app.get("/api/social-links", async (_req, res) => {
     try {

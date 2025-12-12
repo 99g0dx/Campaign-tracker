@@ -57,6 +57,7 @@ import {
   useRescrapeSocialLink,
   useRescrapeAllCampaignLinks,
   useUpdateSocialLink,
+  useUpdateCampaignStatus,
   useCampaignEngagementHistory,
   type SocialLink,
   type PostStatus,
@@ -453,6 +454,7 @@ export default function CampaignDetail() {
   const { mutate: updateLink } = useUpdateSocialLink();
   const { mutate: rescrape, isPending: isRescraping } = useRescrapeSocialLink();
   const { mutate: rescrapeAll, isPending: isScrapingAll } = useRescrapeAllCampaignLinks();
+  const { mutate: updateCampaignStatus } = useUpdateCampaignStatus();
   const { toast } = useToast();
 
   const campaign = campaigns?.find((c) => c.id === campaignId);
@@ -612,11 +614,21 @@ export default function CampaignDetail() {
                 <Lock className="h-4 w-4 mr-2" />
                 Share
               </Button>
-              <Badge
-                variant={campaign.status === "Active" ? "default" : "secondary"}
+              <Select
+                value={campaign.status}
+                onValueChange={(value) => updateCampaignStatus({ id: campaign.id, status: value })}
               >
-                {campaign.status}
-              </Badge>
+                <SelectTrigger 
+                  className={`w-[120px] ${campaign.status === "Active" ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200" : "bg-muted text-muted-foreground"}`}
+                  data-testid="select-campaign-status"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="Active">Active</SelectItem>
+                  <SelectItem value="Completed">Completed</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </header>

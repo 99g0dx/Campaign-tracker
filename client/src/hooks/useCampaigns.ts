@@ -67,6 +67,18 @@ export function useAddCampaign() {
   });
 }
 
+export function useUpdateCampaignStatus() {
+  return useMutation({
+    mutationFn: async (data: { id: number; status: string }) => {
+      const response = await apiRequest("PATCH", `/api/campaigns/${data.id}/status`, { status: data.status });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+    },
+  });
+}
+
 export function useSocialLinks() {
   return useQuery<SocialLink[]>({
     queryKey: ["/api/social-links"],
