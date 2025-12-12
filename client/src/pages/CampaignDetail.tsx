@@ -46,7 +46,9 @@ import {
   BarChart3,
   Pencil,
   Download,
+  Lock,
 } from "lucide-react";
+import ShareCampaignModal from "@/components/ShareCampaignModal";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   useCampaigns,
@@ -436,6 +438,7 @@ export default function CampaignDetail() {
 
   const [addCreatorOpen, setAddCreatorOpen] = useState(false);
   const [editLink, setEditLink] = useState<SocialLink | null>(null);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
   const [visibleMetrics, setVisibleMetrics] = useState<MetricVisibility>({
     views: true,
@@ -599,12 +602,22 @@ export default function CampaignDetail() {
                 )}
               </div>
             </div>
-            <Badge
-              variant={campaign.status === "Active" ? "default" : "secondary"}
-              className="shrink-0"
-            >
-              {campaign.status}
-            </Badge>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShareModalOpen(true)}
+                data-testid="button-share-campaign"
+              >
+                <Lock className="h-4 w-4 mr-2" />
+                Share
+              </Button>
+              <Badge
+                variant={campaign.status === "Active" ? "default" : "secondary"}
+              >
+                {campaign.status}
+              </Badge>
+            </div>
           </div>
         </header>
 
@@ -1045,6 +1058,14 @@ export default function CampaignDetail() {
         open={!!editLink}
         onOpenChange={(open) => !open && setEditLink(null)}
         link={editLink}
+      />
+
+      <ShareCampaignModal
+        campaignId={campaignId || 0}
+        initialEnabled={campaign.shareEnabled}
+        initialSlug={campaign.shareSlug}
+        open={shareModalOpen}
+        onOpenChange={setShareModalOpen}
       />
     </div>
   );

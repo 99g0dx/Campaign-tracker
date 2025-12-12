@@ -1,10 +1,11 @@
 import { db } from "./db";
-import { eq, desc, sql, asc, inArray } from "drizzle-orm";
+import { eq, desc, sql, asc, inArray, and } from "drizzle-orm";
 import {
   campaigns,
   socialLinks,
   engagementHistory,
   users,
+  teamMembers,
   type Campaign,
   type InsertCampaign,
   type SocialLink,
@@ -14,6 +15,8 @@ import {
   type EngagementHistory,
   type User,
   type UpsertUser,
+  type TeamMember,
+  type InsertTeamMember,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -39,6 +42,15 @@ export interface IStorage {
   createEngagementSnapshot(data: InsertEngagementHistory): Promise<EngagementHistory>;
   getEngagementHistory(socialLinkId: number): Promise<EngagementHistory[]>;
   getCampaignEngagementHistory(campaignId: number): Promise<{ date: string; views: number; likes: number; comments: number; shares: number; totalEngagement: number }[]>;
+  
+  // Campaign sharing
+  updateCampaignShare(id: number, shareData: { shareSlug?: string | null; sharePasswordHash?: string | null; shareEnabled: boolean; shareCreatedAt?: Date | null }): Promise<Campaign | undefined>;
+  getCampaignByShareSlug(slug: string): Promise<Campaign | undefined>;
+  
+  // Team members
+  getTeamMembers(ownerId: string): Promise<TeamMember[]>;
+  addTeamMember(member: InsertTeamMember): Promise<TeamMember>;
+  removeTeamMember(id: number, ownerId: string): Promise<boolean>;
   
   // Seeding
   seedDataIfEmpty(): Promise<void>;
@@ -220,6 +232,38 @@ export class DatabaseStorage implements IStorage {
     return Array.from(groupedByDate.entries())
       .map(([date, data]) => ({ date, ...data }))
       .sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  // Campaign sharing
+  async updateCampaignShare(id: number, shareData: { shareSlug?: string | null; sharePasswordHash?: string | null; shareEnabled: boolean; shareCreatedAt?: Date | null }): Promise<Campaign | undefined> {
+    const [updated] = await db
+      .update(campaigns)
+      .set(shareData)
+      .where(eq(campaigns.id, id))
+      .returning();
+    return updated;
+  }
+
+  async getCampaignByShareSlug(slug: string): Promise<Campaign | undefined> {
+    const [campaign] = await db.select().from(campaigns).where(eq(campaigns.shareSlug, slug));
+    return campaign;
+  }
+
+  // Team members
+  async getTeamMembers(ownerId: string): Promise<TeamMember[]> {
+    return await db.select().from(teamMembers).where(eq(teamMembers.ownerId, ownerId)).orderBy(desc(teamMembers.createdAt));
+  }
+
+  async addTeamMember(member: InsertTeamMember): Promise<TeamMember> {
+    const [newMember] = await db.insert(teamMembers).values(member).returning();
+    return newMember;
+  }
+
+  async removeTeamMember(id: number, ownerId: string): Promise<boolean> {
+    const deleted = await db.delete(teamMembers)
+      .where(and(eq(teamMembers.id, id), eq(teamMembers.ownerId, ownerId)))
+      .returning();
+    return deleted.length > 0;
   }
 
   async seedDataIfEmpty(): Promise<void> {

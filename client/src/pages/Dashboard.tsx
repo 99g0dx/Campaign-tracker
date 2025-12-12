@@ -425,6 +425,12 @@ export default function Dashboard() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <Link href="/profile">
+                  <DropdownMenuItem data-testid="button-profile" className="cursor-pointer">
+                    <User className="h-4 w-4 mr-2" />
+                    Profile
+                  </DropdownMenuItem>
+                </Link>
                 <DropdownMenuItem onClick={logout} data-testid="button-logout" className="cursor-pointer">
                   <LogOut className="h-4 w-4 mr-2" />
                   Log out

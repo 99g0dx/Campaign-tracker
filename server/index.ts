@@ -2,8 +2,10 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import cookieParser from "cookie-parser";
 
 const app = express();
+app.use(cookieParser());
 const httpServer = createServer(app);
 
 declare module "http" {

@@ -8,6 +8,8 @@ import Dashboard from "@/pages/Dashboard";
 import CampaignDetail from "@/pages/CampaignDetail";
 import Landing from "@/pages/Landing";
 import Onboarding from "@/pages/Onboarding";
+import Profile from "@/pages/Profile";
+import SharedCampaign from "@/pages/SharedCampaign";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -26,6 +28,7 @@ function Router() {
     return (
       <Switch>
         <Route path="/" component={Landing} />
+        <Route path="/share/:slug" component={SharedCampaign} />
         <Route component={Landing} />
       </Switch>
     );
@@ -43,7 +46,10 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaign/:id" component={CampaignDetail} />
+      <Route path="/profile" component={Profile} />
+      <Route path="/share/:slug" component={SharedCampaign} />
       <Route path="/onboarding">{() => <Redirect to="/" />}</Route>
       <Route component={NotFound} />
     </Switch>

@@ -15,6 +15,10 @@ export interface Campaign {
   totalShares: number;
   totalEngagement: number;
   postCount: number;
+  // Sharing fields
+  shareSlug: string | null;
+  shareEnabled: boolean;
+  shareCreatedAt: string | null;
 }
 
 export interface NewCampaignData {

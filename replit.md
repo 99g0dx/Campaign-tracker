@@ -124,6 +124,9 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Added campaign sharing with password protection - users can share campaigns via password-locked public links
+- 2025-12-12: Added Profile page with user details and team member management
+- 2025-12-12: Added shared campaign page with password gate for public access
 - 2025-12-12: Added chart metric toggles - checkboxes to show/hide views, likes, comments, shares on engagement charts
 - 2025-12-12: Added CSV export - "Download CSV" button to export campaign post data with engagement metrics
 - 2025-12-12: Added batch scraping - "Scrape All" button to rescrape all posts in a campaign simultaneously

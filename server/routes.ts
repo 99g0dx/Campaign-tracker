@@ -1,11 +1,13 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCampaignSchema, insertSocialLinkSchema, postStatusOptions } from "@shared/schema";
+import { insertCampaignSchema, insertSocialLinkSchema, postStatusOptions, insertTeamMemberSchema } from "@shared/schema";
 import { z } from "zod";
 import { scrapeSocialLink, getPlatformFromUrl } from "./scraper";
 import { setupAuth, isAuthenticated } from "./replitAuth";
 import profileRoutes from "./profileRoutes";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -417,6 +419,239 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Failed to update social link:", error);
       res.status(500).json({ error: "Failed to update social link" });
+    }
+  });
+
+  // ==================== CAMPAIGN SHARING ROUTES ====================
+  
+  // Enable or update share settings for a campaign
+  app.post("/api/campaigns/:id/share", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      const shareSchema = z.object({
+        enable: z.boolean(),
+        password: z.string().optional(),
+      });
+
+      const parsed = shareSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+
+      const { enable, password } = parsed.data;
+      
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      let shareSlug = campaign.shareSlug;
+      let sharePasswordHash = campaign.sharePasswordHash;
+
+      if (enable) {
+        if (!password) {
+          return res.status(400).json({ error: "Password is required to enable sharing" });
+        }
+        
+        // Generate slug if not exists
+        if (!shareSlug) {
+          shareSlug = crypto.randomBytes(12).toString("hex");
+        }
+        
+        sharePasswordHash = await bcrypt.hash(password, 10);
+      } else {
+        shareSlug = null;
+        sharePasswordHash = null;
+      }
+
+      const updated = await storage.updateCampaignShare(id, {
+        shareEnabled: enable,
+        shareSlug,
+        sharePasswordHash,
+        shareCreatedAt: enable ? new Date() : null,
+      });
+
+      res.json({
+        id: updated?.id,
+        shareEnabled: updated?.shareEnabled,
+        shareSlug: updated?.shareSlug,
+      });
+    } catch (error) {
+      console.error("Failed to update campaign share:", error);
+      res.status(500).json({ error: "Failed to update share settings" });
+    }
+  });
+
+  // Get share status for a campaign
+  app.get("/api/campaigns/:id/share", isAuthenticated, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      const campaign = await storage.getCampaign(id);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      res.json({
+        shareEnabled: campaign.shareEnabled,
+        shareSlug: campaign.shareSlug,
+      });
+    } catch (error) {
+      console.error("Failed to get share status:", error);
+      res.status(500).json({ error: "Failed to get share status" });
+    }
+  });
+
+  // ==================== PUBLIC CAMPAIGN ACCESS ROUTES ====================
+  
+  const COOKIE_PREFIX = "campaign_access_";
+
+  // Verify password for public campaign access
+  app.post("/api/public/campaigns/:slug/verify", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const { password } = req.body;
+
+      const campaign = await storage.getCampaignByShareSlug(slug);
+      if (!campaign || !campaign.shareEnabled || !campaign.sharePasswordHash) {
+        return res.status(404).json({ error: "Campaign not available" });
+      }
+
+      const isValid = await bcrypt.compare(password, campaign.sharePasswordHash);
+      if (!isValid) {
+        return res.status(401).json({ error: "Incorrect password" });
+      }
+
+      // Set cookie for access
+      res.cookie(COOKIE_PREFIX + slug, "ok", {
+        httpOnly: true,
+        maxAge: 24 * 60 * 60 * 1000, // 1 day
+        sameSite: "lax",
+      });
+
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Failed to verify campaign password:", error);
+      res.status(500).json({ error: "Failed to verify password" });
+    }
+  });
+
+  // Get public campaign data (requires valid cookie)
+  app.get("/api/public/campaigns/:slug", async (req, res) => {
+    try {
+      const { slug } = req.params;
+      const cookieName = COOKIE_PREFIX + slug;
+
+      if (req.cookies?.[cookieName] !== "ok") {
+        return res.status(401).json({ error: "Locked" });
+      }
+
+      const campaign = await storage.getCampaignByShareSlug(slug);
+      if (!campaign || !campaign.shareEnabled) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      // Get social links for this campaign
+      const socialLinks = await storage.getSocialLinksByCampaign(campaign.id);
+      
+      // Get engagement history
+      const engagementHistory = await storage.getCampaignEngagementHistory(campaign.id);
+
+      res.json({ 
+        campaign: {
+          id: campaign.id,
+          name: campaign.name,
+          songTitle: campaign.songTitle,
+          songArtist: campaign.songArtist,
+          status: campaign.status,
+          createdAt: campaign.createdAt,
+        },
+        socialLinks,
+        engagementHistory,
+      });
+    } catch (error) {
+      console.error("Failed to fetch public campaign:", error);
+      res.status(500).json({ error: "Failed to fetch campaign" });
+    }
+  });
+
+  // ==================== TEAM MEMBERS ROUTES ====================
+  
+  // Get team members for current user
+  app.get("/api/team-members", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const members = await storage.getTeamMembers(userId);
+      res.json(members);
+    } catch (error) {
+      console.error("Failed to fetch team members:", error);
+      res.status(500).json({ error: "Failed to fetch team members" });
+    }
+  });
+
+  // Add team member
+  app.post("/api/team-members", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const memberSchema = z.object({
+        name: z.string().min(1),
+        email: z.string().email(),
+        role: z.string().optional(),
+      });
+
+      const parsed = memberSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+
+      const member = await storage.addTeamMember({
+        ownerId: userId,
+        ...parsed.data,
+      });
+
+      res.status(201).json(member);
+    } catch (error) {
+      console.error("Failed to add team member:", error);
+      res.status(500).json({ error: "Failed to add team member" });
+    }
+  });
+
+  // Remove team member
+  app.delete("/api/team-members/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid member ID" });
+      }
+
+      const deleted = await storage.removeTeamMember(id, userId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Team member not found or not authorized" });
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      console.error("Failed to remove team member:", error);
+      res.status(500).json({ error: "Failed to remove team member" });
     }
   });
 
