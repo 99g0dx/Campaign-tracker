@@ -11,6 +11,7 @@ import bcrypt from "bcrypt";
 import crypto from "crypto";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
+import { enqueueScrapeJob, startScrapeQueueWorker } from "./scrapeQueue";
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
@@ -381,7 +382,7 @@ export async function registerRoutes(
     }
   });
 
-  // Rescrape all social links for a campaign (verify ownership)
+  // Rescrape all social links for a campaign (verify ownership) - uses job queue
   app.post("/api/campaigns/:id/rescrape-all", requireUser, async (req: any, res) => {
     try {
       const userId = req.session?.userId;
@@ -398,57 +399,110 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Campaign not found" });
       }
 
-      const links = await storage.getSocialLinksByCampaign(id);
-      const scrapableLinks = links.filter(l => !l.url.startsWith("placeholder://"));
+      const { jobId, taskCount } = await enqueueScrapeJob(id);
       
-      if (scrapableLinks.length === 0) {
-        return res.json({ scraped: 0, total: 0 });
+      res.json({ jobId, taskCount, status: "queued" });
+    } catch (error: any) {
+      console.error("Failed to start batch scrape:", error);
+      if (error.message?.includes("already running")) {
+        return res.status(409).json({ error: error.message });
+      }
+      if (error.message?.includes("No posts")) {
+        return res.status(400).json({ error: error.message });
+      }
+      res.status(500).json({ error: "Failed to start batch scrape" });
+    }
+  });
+
+  // Get scrape job status with aggregated stats
+  app.get("/api/scrape-jobs/:id", requireUser, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid job ID" });
       }
 
-      // Mark all as scraping
-      await Promise.all(scrapableLinks.map(link => 
-        storage.updateSocialLink(link.id, { status: "scraping" })
-      ));
+      const jobWithStats = await storage.getScrapeJobWithStats(id);
+      if (!jobWithStats) {
+        return res.status(404).json({ error: "Scrape job not found" });
+      }
 
-      // Start scraping all in background
-      Promise.all(scrapableLinks.map(async (link) => {
-        try {
-          const result = await scrapeSocialLink(link.url);
-          if (result.success && result.data) {
-            await storage.updateSocialLink(link.id, {
-              ...result.data,
-              status: "scraped",
-              lastScrapedAt: new Date(),
-            });
-            
-            const totalEngagement = (result.data.likes || 0) + (result.data.comments || 0) + (result.data.shares || 0);
-            await storage.createEngagementSnapshot({
-              socialLinkId: link.id,
-              views: result.data.views || 0,
-              likes: result.data.likes || 0,
-              comments: result.data.comments || 0,
-              shares: result.data.shares || 0,
-              totalEngagement,
-            });
-          } else {
-            await storage.updateSocialLink(link.id, {
-              status: "error",
-              errorMessage: result.error || "Failed to scrape",
-            });
-          }
-        } catch (err: any) {
-          console.error("Batch scraping error for link", link.id, err);
-          await storage.updateSocialLink(link.id, {
-            status: "error",
-            errorMessage: err.message || "Scraping failed",
-          });
-        }
-      }));
+      const campaign = await storage.getCampaignForOwner(jobWithStats.campaignId, userId);
+      if (!campaign) {
+        return res.status(403).json({ error: "Access denied" });
+      }
 
-      res.json({ scraped: scrapableLinks.length, total: links.length, status: "scraping" });
+      res.json(jobWithStats);
     } catch (error) {
-      console.error("Failed to batch rescrape:", error);
-      res.status(500).json({ error: "Failed to batch rescrape" });
+      console.error("Failed to fetch scrape job:", error);
+      res.status(500).json({ error: "Failed to fetch scrape job" });
+    }
+  });
+
+  // Get scrape tasks for a job
+  app.get("/api/scrape-jobs/:id/tasks", requireUser, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid job ID" });
+      }
+
+      const job = await storage.getScrapeJob(id);
+      if (!job) {
+        return res.status(404).json({ error: "Scrape job not found" });
+      }
+
+      const campaign = await storage.getCampaignForOwner(job.campaignId, userId);
+      if (!campaign) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const tasks = await storage.getScrapeTasksByJob(id);
+      res.json(tasks);
+    } catch (error) {
+      console.error("Failed to fetch scrape tasks:", error);
+      res.status(500).json({ error: "Failed to fetch scrape tasks" });
+    }
+  });
+
+  // Get active scrape job for a campaign
+  app.get("/api/campaigns/:id/active-scrape-job", requireUser, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      const campaign = await storage.getCampaignForOwner(id, userId);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      const job = await storage.getActiveScrapeJobForCampaign(id);
+      if (!job) {
+        return res.json(null);
+      }
+
+      const jobWithStats = await storage.getScrapeJobWithStats(job.id);
+      res.json(jobWithStats);
+    } catch (error) {
+      console.error("Failed to fetch active scrape job:", error);
+      res.status(500).json({ error: "Failed to fetch active scrape job" });
     }
   });
 
@@ -1277,6 +1331,9 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to import creators CSV" });
     }
   });
+
+  // Start the scrape queue worker
+  startScrapeQueueWorker();
 
   return httpServer;
 }

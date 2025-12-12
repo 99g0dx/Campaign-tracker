@@ -171,6 +171,93 @@ export function useRescrapeAllCampaignLinks() {
       queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns", data.campaignId, "engagement-history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns", data.campaignId, "active-scrape-job"] });
+    },
+  });
+}
+
+export type ScrapeJobStatus = "queued" | "running" | "done" | "failed";
+export type ScrapeTaskStatus = "queued" | "running" | "success" | "failed";
+
+export interface ScrapeJobWithStats {
+  id: number;
+  campaignId: number;
+  status: ScrapeJobStatus;
+  createdAt: string;
+  completedAt: string | null;
+  totalTasks: number;
+  completedTasks: number;
+  successfulTasks: number;
+  failedTasks: number;
+}
+
+export interface ScrapeTask {
+  id: number;
+  jobId: number;
+  socialLinkId: number;
+  url: string;
+  platform: string;
+  status: ScrapeTaskStatus;
+  attempts: number;
+  lastError: string | null;
+  resultViews: number | null;
+  resultLikes: number | null;
+  resultComments: number | null;
+  resultShares: number | null;
+  updatedAt: string;
+}
+
+export function useActiveScrapeJob(campaignId: number, enabled: boolean = true) {
+  return useQuery<ScrapeJobWithStats | null>({
+    queryKey: ["/api/campaigns", campaignId, "active-scrape-job"],
+    queryFn: async () => {
+      const response = await fetch(`/api/campaigns/${campaignId}/active-scrape-job`);
+      if (!response.ok) throw new Error("Failed to fetch active scrape job");
+      return response.json();
+    },
+    enabled: !!campaignId && enabled,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+      if (data.status === "done" || data.status === "failed") return false;
+      return 3000;
+    },
+  });
+}
+
+export function useScrapeJob(jobId: number | null) {
+  return useQuery<ScrapeJobWithStats>({
+    queryKey: ["/api/scrape-jobs", jobId],
+    queryFn: async () => {
+      const response = await fetch(`/api/scrape-jobs/${jobId}`);
+      if (!response.ok) throw new Error("Failed to fetch scrape job");
+      return response.json();
+    },
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return 3000;
+      if (data.status === "done" || data.status === "failed") return false;
+      return 3000;
+    },
+  });
+}
+
+export function useScrapeTasks(jobId: number | null) {
+  return useQuery<ScrapeTask[]>({
+    queryKey: ["/api/scrape-jobs", jobId, "tasks"],
+    queryFn: async () => {
+      const response = await fetch(`/api/scrape-jobs/${jobId}/tasks`);
+      if (!response.ok) throw new Error("Failed to fetch scrape tasks");
+      return response.json();
+    },
+    enabled: !!jobId,
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data || data.length === 0) return 3000;
+      const allComplete = data.every(t => t.status === "success" || t.status === "failed");
+      if (allComplete) return false;
+      return 3000;
     },
   });
 }

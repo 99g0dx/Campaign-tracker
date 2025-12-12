@@ -93,12 +93,17 @@ shared/
 - `GET /api/campaigns` - Get all campaigns for current user with aggregated stats
 - `POST /api/campaigns` - Create new campaign (owner_id set from session)
 - `DELETE /api/campaigns/:id` - Delete campaign with cascading deletion of social links and engagement history
-- `POST /api/campaigns/:id/rescrape-all` - Batch rescrape all posts in a campaign
+- `POST /api/campaigns/:id/rescrape-all` - Create batch scrape job, returns { jobId, taskCount, status: "queued" }
+- `GET /api/campaigns/:id/active-scrape-job` - Get active scrape job for campaign with stats
 - `GET /api/social-links` - Get all social links for user's campaigns
 - `POST /api/social-links` - Add new social link with optional creatorName (triggers scraping)
 - `PATCH /api/social-links/:id` - Update post status, creator name, URL, and engagement metrics (views, likes, comments, shares)
 - `DELETE /api/social-links/:id` - Remove creator/post from campaign (authenticated, cascades to engagement history)
-- `POST /api/social-links/:id/rescrape` - Rescrape engagement data
+- `POST /api/social-links/:id/rescrape` - Rescrape engagement data (single post)
+
+### Scrape Job Endpoints
+- `GET /api/scrape-jobs/:id` - Get scrape job with aggregated stats (totalTasks, completedTasks, successfulTasks, failedTasks)
+- `GET /api/scrape-jobs/:id/tasks` - Get all tasks for a scrape job with per-task status
 
 ### Auth Endpoints
 - `POST /api/auth/signup` - Create new account (body: email, password, fullName?, phone?)
@@ -163,6 +168,7 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Improved batch scraping with job queue architecture - p-limit concurrency control (3 concurrent tasks), retry with exponential backoff (1s→2s→4s), per-row status badges (Queued/Running/Success/Failed), continuous polling worker
 - 2025-12-12: Added campaign deletion with confirmation modal - delete from Dashboard cards or CampaignDetail page header, cascades to remove all posts and engagement history
 - 2025-12-12: Added campaign ownership system with owner_id column - campaigns are now scoped to users with access control on all routes
 - 2025-12-12: Fixed email delivery - verification codes and password reset emails now properly sent via Resend API

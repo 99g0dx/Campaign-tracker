@@ -75,8 +75,11 @@ import {
   useDeleteCampaign,
   useUpdateCampaignStatus,
   useCampaignEngagementHistory,
+  useActiveScrapeJob,
+  useScrapeTasks,
   type SocialLink,
   type PostStatus,
+  type ScrapeTask,
 } from "@/hooks/useCampaigns";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
@@ -566,6 +569,16 @@ export default function CampaignDetail() {
   const { mutate: rescrapeAll, isPending: isScrapingAll } = useRescrapeAllCampaignLinks();
   const { mutate: updateCampaignStatus } = useUpdateCampaignStatus();
   const { toast } = useToast();
+  
+  const { data: activeScrapeJob } = useActiveScrapeJob(campaignId || 0);
+  const { data: scrapeTasks } = useScrapeTasks(activeScrapeJob?.id ?? null);
+  
+  const scrapeTasksByLinkId = new Map<number, ScrapeTask>();
+  scrapeTasks?.forEach(task => {
+    scrapeTasksByLinkId.set(task.socialLinkId, task);
+  });
+  
+  const isBatchScraping = activeScrapeJob && (activeScrapeJob.status === "queued" || activeScrapeJob.status === "running");
 
   const campaign = campaigns?.find((c) => c.id === campaignId);
   const campaignLinks = socialLinks?.filter((l) => l.campaignId === campaignId) || [];
@@ -633,16 +646,23 @@ export default function CampaignDetail() {
 
   const handleScrapeAll = () => {
     if (!campaignId) return;
+    if (isBatchScraping) {
+      toast({
+        title: "Scraping in progress",
+        description: "A scrape job is already running for this campaign.",
+      });
+      return;
+    }
     rescrapeAll(campaignId, {
       onSuccess: (data: any) => {
         toast({ 
           title: "Scraping started", 
-          description: `Scraping ${data.scraped} posts...` 
+          description: `Queued ${data.taskCount} posts for scraping...` 
         });
       },
       onError: (error: Error) => {
         toast({
-          title: "Failed to scrape",
+          title: "Failed to start scraping",
           description: error.message,
           variant: "destructive",
         });
@@ -1128,13 +1148,19 @@ export default function CampaignDetail() {
           <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <CardTitle>Creators & Posts</CardTitle>
             <div className="flex flex-wrap items-center gap-2">
+              {isBatchScraping && activeScrapeJob && (
+                <Badge variant="secondary" className="gap-1" data-testid="badge-scrape-progress">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  {activeScrapeJob.completedTasks}/{activeScrapeJob.totalTasks} scraped
+                </Badge>
+              )}
               <Button 
                 variant="outline" 
                 onClick={handleScrapeAll} 
-                disabled={isScrapingAll || campaignLinks.length === 0}
+                disabled={isScrapingAll || isBatchScraping || campaignLinks.length === 0}
                 data-testid="button-scrape-all"
               >
-                {isScrapingAll ? (
+                {isScrapingAll || isBatchScraping ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
                 ) : (
                   <RefreshCw className="h-4 w-4 mr-2" />
@@ -1304,21 +1330,53 @@ export default function CampaignDetail() {
                                 </Button>
                               ) : (
                                 <>
-                                  {link.status === "scraping" && (
-                                    <Badge variant="outline" className="text-xs">
-                                      <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                                      Scraping
-                                    </Badge>
-                                  )}
-                                  {link.status === "error" && (
-                                    <Badge variant="destructive" className="text-xs">
-                                      Error
-                                    </Badge>
-                                  )}
+                                  {(() => {
+                                    const scrapeTask = scrapeTasksByLinkId.get(link.id);
+                                    if (scrapeTask) {
+                                      if (scrapeTask.status === "queued") {
+                                        return (
+                                          <Badge variant="outline" className="text-xs" data-testid={`badge-scrape-queued-${link.id}`}>
+                                            Queued
+                                          </Badge>
+                                        );
+                                      }
+                                      if (scrapeTask.status === "running") {
+                                        return (
+                                          <Badge variant="outline" className="text-xs" data-testid={`badge-scrape-running-${link.id}`}>
+                                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                            Scraping
+                                          </Badge>
+                                        );
+                                      }
+                                      if (scrapeTask.status === "failed") {
+                                        return (
+                                          <Badge variant="destructive" className="text-xs" data-testid={`badge-scrape-failed-${link.id}`} title={scrapeTask.lastError || "Scraping failed"}>
+                                            Failed
+                                          </Badge>
+                                        );
+                                      }
+                                    }
+                                    if (link.status === "scraping") {
+                                      return (
+                                        <Badge variant="outline" className="text-xs">
+                                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                          Scraping
+                                        </Badge>
+                                      );
+                                    }
+                                    if (link.status === "error") {
+                                      return (
+                                        <Badge variant="destructive" className="text-xs" title={link.errorMessage || "Error"}>
+                                          Error
+                                        </Badge>
+                                      );
+                                    }
+                                    return null;
+                                  })()}
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    disabled={isRescraping || link.status === "scraping"}
+                                    disabled={isRescraping || link.status === "scraping" || isBatchScraping}
                                     onClick={() => rescrape(link.id)}
                                     data-testid={`button-rescrape-${link.id}`}
                                   >

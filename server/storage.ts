@@ -89,6 +89,7 @@ export interface IStorage {
   getScrapeJob(id: number): Promise<ScrapeJob | undefined>;
   getScrapeJobWithStats(id: number): Promise<ScrapeJobWithStats | undefined>;
   getActiveScrapeJobForCampaign(campaignId: number): Promise<ScrapeJob | undefined>;
+  getActiveJobs(): Promise<ScrapeJob[]>;
   updateScrapeJobStatus(id: number, status: string, completedAt?: Date): Promise<ScrapeJob | undefined>;
   
   // Scrape tasks
@@ -535,6 +536,14 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(scrapeJobs.createdAt))
       .limit(1);
     return job;
+  }
+
+  async getActiveJobs(): Promise<ScrapeJob[]> {
+    return db.select()
+      .from(scrapeJobs)
+      .where(
+        or(eq(scrapeJobs.status, "queued"), eq(scrapeJobs.status, "running"))
+      );
   }
 
   async updateScrapeJobStatus(id: number, status: string, completedAt?: Date): Promise<ScrapeJob | undefined> {
