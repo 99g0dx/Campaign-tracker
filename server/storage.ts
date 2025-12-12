@@ -69,6 +69,9 @@ export interface IStorage {
   // Bulk social links
   createSocialLinksBulk(links: InsertSocialLink[]): Promise<number>;
   
+  // Search creator names from existing social links
+  searchCreatorNamesFromLinks(query: string): Promise<{ creatorName: string; platform: string }[]>;
+  
   // Seeding
   seedDataIfEmpty(): Promise<void>;
 }
@@ -365,6 +368,29 @@ export class DatabaseStorage implements IStorage {
     if (links.length === 0) return 0;
     const result = await db.insert(socialLinks).values(links).returning();
     return result.length;
+  }
+
+  // Search unique creator names from social links (for autocomplete)
+  async searchCreatorNamesFromLinks(query: string): Promise<{ creatorName: string; platform: string }[]> {
+    const pattern = `%${query}%`;
+    const results = await db
+      .selectDistinct({ 
+        creatorName: socialLinks.creatorName,
+        platform: socialLinks.platform
+      })
+      .from(socialLinks)
+      .where(
+        and(
+          sql`${socialLinks.creatorName} IS NOT NULL`,
+          sql`${socialLinks.creatorName} != ''`,
+          ilike(socialLinks.creatorName, pattern)
+        )
+      )
+      .limit(10);
+    return results.filter(r => r.creatorName).map(r => ({
+      creatorName: r.creatorName!,
+      platform: r.platform
+    }));
   }
 
   async seedDataIfEmpty(): Promise<void> {

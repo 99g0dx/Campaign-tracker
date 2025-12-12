@@ -1047,6 +1047,22 @@ export async function registerRoutes(
     }
   });
 
+  // Search creator names from existing social links (autocomplete for Add Creator modal)
+  app.get("/api/social-links/creator-names/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const query = (req.query.q as string)?.trim();
+      if (!query || query.length < 2) {
+        return res.json({ results: [] });
+      }
+
+      const results = await storage.searchCreatorNamesFromLinks(query);
+      res.json({ results });
+    } catch (error) {
+      console.error("Failed to search creator names:", error);
+      res.status(500).json({ error: "Failed to search creator names" });
+    }
+  });
+
   // Import creators from CSV
   app.post("/api/creators/import", isAuthenticated, upload.single("file"), async (req: any, res) => {
     try {

@@ -153,6 +153,7 @@ The scraper uses Apify API for reliable engagement data extraction:
 - Get your token at: apify.com → Settings → Integrations
 
 ## Recent Changes
+- 2025-12-12: Enhanced Add Creator modal with autocomplete search - creators added to any campaign are now searchable when adding new creators
 - 2025-12-12: Added CSV import for campaign posts with postStatus validation and 5MB file size limit
 - 2025-12-12: Added creators database with search functionality and CreatorSelect component
 - 2025-12-12: Added metric toggle checkboxes to SharedCampaign engagement charts

@@ -106,6 +106,94 @@ function getPlatformColor(platform: string): string {
   }
 }
 
+type CreatorNameOption = {
+  creatorName: string;
+  platform: string;
+};
+
+function CreatorNameAutocomplete({
+  value,
+  onChange,
+  placeholder = "Search or type creator name",
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  const [options, setOptions] = useState<CreatorNameOption[]>([]);
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = async () => {
+      if (!value || value.length < 2) {
+        setOptions([]);
+        return;
+      }
+      setLoading(true);
+      try {
+        const res = await fetch(
+          `/api/social-links/creator-names/search?q=${encodeURIComponent(value)}`,
+          { signal: controller.signal, credentials: "include" }
+        );
+        const data = await res.json();
+        setOptions(data.results || []);
+        setOpen(true);
+      } catch {
+      } finally {
+        setLoading(false);
+      }
+    };
+    const t = setTimeout(run, 200);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
+  }, [value]);
+
+  function handleSelect(opt: CreatorNameOption) {
+    onChange(opt.creatorName);
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <Input
+        placeholder={placeholder}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={() => options.length > 0 && setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        data-testid="input-creator-name"
+        required
+      />
+      {open && options.length > 0 && (
+        <div className="absolute z-50 mt-1 w-full rounded-md bg-popover border border-border max-h-56 overflow-y-auto shadow-md">
+          {options.map((opt, idx) => (
+            <button
+              key={`${opt.creatorName}-${idx}`}
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => handleSelect(opt)}
+              className="w-full text-left px-3 py-2 hover-elevate text-sm"
+              data-testid={`option-creator-${idx}`}
+            >
+              <div className="font-medium">{opt.creatorName}</div>
+              <div className="text-xs text-muted-foreground">{opt.platform}</div>
+            </button>
+          ))}
+        </div>
+      )}
+      {loading && (
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+          ...
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AddCreatorModal({
   open,
   onOpenChange,
@@ -157,19 +245,16 @@ function AddCreatorModal({
         <DialogHeader>
           <DialogTitle>Add Creator</DialogTitle>
           <DialogDescription>
-            Add a creator to track. You can add their link now or later.
+            Add a creator to track. You can search for existing creators or type a new name.
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="creatorName">Creator Name / Handle</Label>
-            <Input
-              id="creatorName"
-              placeholder="@creator_handle"
+            <CreatorNameAutocomplete
               value={creatorName}
-              onChange={(e) => setCreatorName(e.target.value)}
-              data-testid="input-creator-name"
-              required
+              onChange={setCreatorName}
+              placeholder="Search or type @creator_handle"
             />
           </div>
           <div className="space-y-2">
