@@ -1,0 +1,275 @@
+You are a senior full stack engineer working inside this Replit project called “Campaign Tracker”.
+
+Stack:
+
+* Backend: Node + Express + TypeScript + Drizzle ORM + PostgreSQL
+* Frontend: React + TypeScript + Vite + Tailwind + Recharts
+* Current auth: Replit OAuth (openid-client based) with `/auth/login` and `/auth/callback` that redirects users to Replit’s consent screen.
+
+Goal:
+Completely remove Replit OAuth and replace it with a classic email plus password signup and login system using our own database and secure session cookies. Users should see our own “Create account” and “Log in” screens, not the Replit consent page.
+
+Do not break any existing campaign, CSV import, engagement, or share link features.
+
+---
+
+## AUTH REQUIREMENTS
+
+1. User model
+
+Migrate auth to a local `users` table. Use Drizzle migrations to ensure the table has at least:
+
+* `id` (text, primary key, `crypto.randomUUID()` or similar)
+* `email` (text, unique, not null, lowercased)
+* `passwordHash` (text, not null)
+* `fullName` (text, nullable)
+* `phone` (text, nullable)
+* `isVerified` (boolean, default false)
+* `verificationCode` (text, nullable)
+* `verificationExpiresAt` (timestamp, nullable)
+* `resetToken` (text, nullable)
+* `resetTokenExpiresAt` (timestamp, nullable)
+* Any existing fields that are still in use by the rest of the app
+
+If there is a `replitId` field or anything tied to Replit OAuth, keep it only if it is still required for legacy data, but the new auth must not depend on it.
+
+2. Sessions
+
+Implement cookie based sessions for local auth. You can reuse the existing session setup if one already exists, otherwise:
+
+* Use a simple session solution such as `express-session` or `cookie-session`
+* Store `userId` on the session object after successful login or signup
+* Provide a small `requireUser` middleware that:
+
+  * Reads `req.session.userId`
+  * If missing, returns 401 JSON `{ error: "Not authenticated" }`
+  * If present, attaches `req.userId = session.userId` and calls `next()`
+
+Update every protected route in the backend to use this `requireUser` middleware instead of any Replit specific checks.
+
+3. Remove Replit OAuth
+
+Remove or comment out all Replit OAuth logic including:
+
+* Any `openid-client` usage
+* Routes such as `/auth/login`, `/auth/callback` that redirect to `https://replit.com/...`
+* Any Replit specific environment variables that are only used for OAuth
+
+After this change, the app must not redirect users to a Replit screen for authentication.
+
+4. New auth API
+
+Create a new backend router at `/api/auth` with the following endpoints.
+
+All endpoints must validate input, return JSON errors on failure, and set or clear the session cookie as needed.
+
+a) `POST /api/auth/signup`
+
+Body: `{ email, password, fullName, phone }`
+
+* Normalize email to lower case
+* Check if email already exists, if so return 400 with `{ error: "Email already in use" }`
+* Hash password with `bcrypt` (use 10 salt rounds)
+* Generate:
+
+  * `verificationCode`: 6 digit numeric string
+  * `verificationExpiresAt`: now + 15 minutes
+* Insert new user with:
+
+  * `email`
+  * `passwordHash`
+  * `fullName`
+  * `phone`
+  * `isVerified = false`
+  * `verificationCode` and `verificationExpiresAt`
+* Set `req.session.userId = newUser.id`
+* For now, log the verification code on the server with a clear message such as:
+  `console.log("Signup verification code for", email, "is", verificationCode);`
+  (Keep the code paths ready to swap this out for a real email provider later.)
+* Return `{ ok: true }`
+
+b) `POST /api/auth/login`
+
+Body: `{ email, password }`
+
+* Find user by lowercased email
+* If not found, return 401 `{ error: "Invalid email or password" }`
+* Compare password using `bcrypt.compare`
+* If mismatch, return 401
+* Set `req.session.userId = user.id`
+* Return `{ ok: true, isVerified: user.isVerified }`
+
+c) `POST /api/auth/logout`
+
+* Clear session, for example `req.session = null` or `req.session.destroy(...)`
+* Return `{ ok: true }`
+
+d) `GET /api/auth/me`
+
+* If no `userId` on session, return `{ user: null }`
+* If present, query user by id and return a safe subset only:
+  `{ user: { id, email, fullName, phone, isVerified } }`
+
+e) `POST /api/auth/verify`
+
+Body: `{ code }`
+
+* Read current `userId` from session
+* If not logged in, return 401
+* Load user
+* Check that:
+
+  * `verificationCode` matches
+  * `verificationExpiresAt` is in the future
+* If invalid, return 400 `{ error: "Invalid or expired code" }`
+* If valid:
+
+  * Set `isVerified = true`
+  * Clear `verificationCode` and `verificationExpiresAt`
+* Return `{ ok: true }`
+
+f) Forgot password and reset password
+
+Use the existing design and logic we already have drafted, but wire it to this local auth system:
+
+* `POST /api/auth/forgot-password`
+
+  * Body: `{ email }`
+  * If email exists, generate `resetToken` (random 32 byte hex) and `resetTokenExpiresAt` (now + 1 hour)
+  * Save to user
+  * Log reset link to console for now:
+    `console.log("Password reset for", email, ":", APP_URL + "/reset-password?token=" + resetToken)`
+  * Always return `{ ok: true }` so you do not leak whether the email exists
+
+* `POST /api/auth/reset-password`
+
+  * Body: `{ token, newPassword }`
+  * Check that token exists and `resetTokenExpiresAt` is valid
+  * Hash new password and update `passwordHash`
+  * Clear resetToken fields
+  * Return `{ ok: true }`
+
+5. Profile and change password
+
+Reuse the existing `/api/profile` routes but ensure they rely on the new `requireUser` and the local `passwordHash`:
+
+* `GET /api/profile` should return the current user’s fullName, email, phone, isVerified
+* `PUT /api/profile` should update fullName and phone for `req.userId`
+* `POST /api/profile/password` should:
+
+  * Body: `{ currentPassword, newPassword }`
+  * Verify `currentPassword` against `passwordHash`
+  * If correct, update `passwordHash` with the new hash
+
+---
+
+## FRONTEND CHANGES
+
+1. Remove all Replit login redirects
+
+Anywhere in the client where we do `window.location.href = "/auth/login"` or similar, replace that with calls to the new JSON APIs.
+
+The app should never redirect browser windows to Replit for auth after this change.
+
+2. Login page
+
+Update `client/src/pages/LoginPage.tsx` to be a classic login form:
+
+Fields:
+
+* Email
+* Password
+
+Behavior:
+
+* On form submit, call `POST /api/auth/login` with JSON
+* If success, navigate to `/dashboard`
+* If `isVerified` is false, you can optionally show a message like “Check your email for a verification code” and route them to a `/verify` page or show a small inline form
+* Show error messages from the server in the UI
+
+Also add a link under the form:
+
+* “Forgot password?” that routes to `/forgot-password`
+
+3. Signup page
+
+Create or update `client/src/pages/SignupPage.tsx`:
+
+Fields:
+
+* Full name
+* Email
+* Phone
+* Password
+* Confirm password on the client side only, to prevent typos
+
+Behavior:
+
+* Client validates that passwords match and email looks valid
+* Submit to `POST /api/auth/signup`
+* On success:
+
+  * Option A: route directly to dashboard and show a banner to verify email
+  * Option B: route to a `/verify` page that asks for the 6 digit code
+
+4. Verification page
+
+Create `client/src/pages/VerifyAccount.tsx`:
+
+* Single input for 6 digit verification code
+* On submit, call `POST /api/auth/verify`
+* On success, route to `/dashboard`
+* Show proper error if code invalid or expired
+
+5. Forgot and reset password pages
+
+We already have UI sketches. Please:
+
+* Wire `ForgotPassword.tsx` to `POST /api/auth/forgot-password`
+* Wire `ResetPassword.tsx` to `POST /api/auth/reset-password` using the `token` query param
+* After successful reset, route to `/login`
+
+6. Global auth guard
+
+Wherever we gate the app (for example in `App.tsx` or a `ProtectedRoute` component), ensure the logic is:
+
+* On initial load, call `/api/auth/me`
+* While loading, show a simple loading spinner
+* If `user` is null, redirect to `/login`
+* If `user` is present, render the authenticated layout with dashboard, campaigns, profile etc
+
+7. UI details
+
+* Make sure the top right avatar menu has:
+
+  * “Profile” which routes to `/profile`
+  * “Log out” that calls `POST /api/auth/logout` then redirects to `/login`
+* Make sure the login and signup pages include links between each other:
+
+  * “Do not have an account yet? Sign up”
+  * “Already have an account? Log in”
+
+8. Clean up Replit specific visuals
+
+Search the client for any copy that mentions Replit, Replit Auth, or “For the most accurate Replit Auth testing” and remove or update it so the app feels like a standalone SaaS.
+
+---
+
+## DELIVERABLES
+
+* Updated Drizzle schema and migration for `users`
+* New auth router at `/api/auth` with all endpoints working
+* Updated `requireUser` middleware based on local sessions
+* All previous Replit OAuth code removed or unused
+* Fully working login, signup, verify, forgot password, reset password, and logout flows
+* Login and signup screens now show our own UI only, with no redirect to Replit
+
+After you implement all of this, run the app and test:
+
+1. Sign up a brand new user
+2. Use the logged verification code from the server console to verify the account
+3. Log out and log back in with email and password
+4. Use “Forgot password” to reset the password and log in again
+5. Confirm that existing campaign features, CSV import, sharable dashboards, and profile page all work with the new auth system.
+
+If any existing function still tries to call the old `/auth/login` or expects `replitId`, update it to use the new `userId` and local auth.
