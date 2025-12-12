@@ -47,6 +47,7 @@ import {
   Pencil,
   Download,
   Lock,
+  Upload,
 } from "lucide-react";
 import ShareCampaignModal from "@/components/ShareCampaignModal";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -441,6 +442,7 @@ export default function CampaignDetail() {
   const [editLink, setEditLink] = useState<SocialLink | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
+  const [importing, setImporting] = useState(false);
   const [visibleMetrics, setVisibleMetrics] = useState<MetricVisibility>({
     views: true,
     likes: true,
@@ -541,6 +543,39 @@ export default function CampaignDetail() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+  };
+
+  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !campaignId) return;
+
+    setImporting(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const res = await fetch(`/api/campaigns/${campaignId}/import-posts`, {
+        method: "POST",
+        body: formData,
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Import failed");
+      toast({
+        title: "Import successful",
+        description: `Imported ${data.inserted} posts`,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+    } catch (err: any) {
+      toast({
+        title: "Import failed",
+        description: err.message,
+        variant: "destructive",
+      });
+    } finally {
+      setImporting(false);
+      event.target.value = "";
+    }
   };
 
   const handleStatusChange = (linkId: number, newStatus: PostStatus) => {
@@ -900,6 +935,26 @@ export default function CampaignDetail() {
                 <Download className="h-4 w-4 mr-2" />
                 Download CSV
               </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => document.getElementById("csv-import-input")?.click()}
+                disabled={importing}
+                data-testid="button-import-csv"
+              >
+                {importing ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Upload className="h-4 w-4 mr-2" />
+                )}
+                Import CSV
+              </Button>
+              <input
+                id="csv-import-input"
+                type="file"
+                accept=".csv"
+                onChange={handleImportCSV}
+                className="hidden"
+              />
               <Button onClick={() => setAddCreatorOpen(true)} data-testid="button-add-creator">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Creator

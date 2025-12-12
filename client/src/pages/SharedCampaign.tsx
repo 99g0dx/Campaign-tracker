@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Lock,
   Eye,
@@ -123,6 +124,16 @@ export default function SharedCampaign() {
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<SharedData | null>(null);
   const [selectedTimeWindow, setSelectedTimeWindow] = useState("24h");
+  const [visibleMetrics, setVisibleMetrics] = useState({
+    views: true,
+    likes: true,
+    comments: true,
+    shares: true,
+  });
+
+  const toggleMetric = (metric: keyof typeof visibleMetrics) => {
+    setVisibleMetrics(prev => ({ ...prev, [metric]: !prev[metric] }));
+  };
 
   useEffect(() => {
     if (!slug) return;
@@ -377,8 +388,54 @@ export default function SharedCampaign() {
 
         {engagementHistory.length > 0 && (
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <CardTitle>Engagement Over Time</CardTitle>
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="views-toggle-shared" 
+                    checked={visibleMetrics.views}
+                    onCheckedChange={() => toggleMetric("views")}
+                    data-testid="checkbox-views-shared"
+                  />
+                  <Label htmlFor="views-toggle-shared" className="text-sm cursor-pointer flex items-center gap-1">
+                    <Eye className="h-3 w-3 text-blue-500" /> Views
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="likes-toggle-shared" 
+                    checked={visibleMetrics.likes}
+                    onCheckedChange={() => toggleMetric("likes")}
+                    data-testid="checkbox-likes-shared"
+                  />
+                  <Label htmlFor="likes-toggle-shared" className="text-sm cursor-pointer flex items-center gap-1">
+                    <Heart className="h-3 w-3 text-red-500" /> Likes
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="comments-toggle-shared" 
+                    checked={visibleMetrics.comments}
+                    onCheckedChange={() => toggleMetric("comments")}
+                    data-testid="checkbox-comments-shared"
+                  />
+                  <Label htmlFor="comments-toggle-shared" className="text-sm cursor-pointer flex items-center gap-1">
+                    <MessageCircle className="h-3 w-3 text-green-500" /> Comments
+                  </Label>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <Checkbox 
+                    id="shares-toggle-shared" 
+                    checked={visibleMetrics.shares}
+                    onCheckedChange={() => toggleMetric("shares")}
+                    data-testid="checkbox-shares-shared"
+                  />
+                  <Label htmlFor="shares-toggle-shared" className="text-sm cursor-pointer flex items-center gap-1">
+                    <Share2 className="h-3 w-3 text-purple-500" /> Shares
+                  </Label>
+                </div>
+              </div>
             </CardHeader>
             <CardContent>
               <div className="h-[300px]">
@@ -410,38 +467,46 @@ export default function SharedCampaign() {
                       formatter={(value: number) => [formatNumber(value), ""]}
                     />
                     <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="views"
-                      stroke="#3b82f6"
-                      strokeWidth={2}
-                      dot={false}
-                      name="Views"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="likes"
-                      stroke="#ef4444"
-                      strokeWidth={2}
-                      dot={false}
-                      name="Likes"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="comments"
-                      stroke="#22c55e"
-                      strokeWidth={2}
-                      dot={false}
-                      name="Comments"
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="shares"
-                      stroke="#a855f7"
-                      strokeWidth={2}
-                      dot={false}
-                      name="Shares"
-                    />
+                    {visibleMetrics.views && (
+                      <Line
+                        type="monotone"
+                        dataKey="views"
+                        stroke="#3b82f6"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Views"
+                      />
+                    )}
+                    {visibleMetrics.likes && (
+                      <Line
+                        type="monotone"
+                        dataKey="likes"
+                        stroke="#ef4444"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Likes"
+                      />
+                    )}
+                    {visibleMetrics.comments && (
+                      <Line
+                        type="monotone"
+                        dataKey="comments"
+                        stroke="#22c55e"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Comments"
+                      />
+                    )}
+                    {visibleMetrics.shares && (
+                      <Line
+                        type="monotone"
+                        dataKey="shares"
+                        stroke="#a855f7"
+                        strokeWidth={2}
+                        dot={false}
+                        name="Shares"
+                      />
+                    )}
                   </LineChart>
                 </ResponsiveContainer>
               </div>

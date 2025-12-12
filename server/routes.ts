@@ -9,6 +9,15 @@ import profileRoutes from "./profileRoutes";
 import bcrypt from "bcrypt";
 import crypto from "crypto";
 import { sendPasswordResetEmail } from "./email";
+import multer from "multer";
+import { parse } from "csv-parse/sync";
+
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024,
+  },
+});
 
 export async function registerRoutes(
   httpServer: Server,
@@ -927,6 +936,160 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Failed to remove team member:", error);
       res.status(500).json({ error: "Failed to remove team member" });
+    }
+  });
+
+  // ==================== CSV IMPORT ROUTES ====================
+
+  // Import posts from CSV for a campaign
+  app.post("/api/campaigns/:id/import-posts", isAuthenticated, upload.single("file"), async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const campaignId = parseInt(req.params.id, 10);
+      if (isNaN(campaignId)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const campaign = await storage.getCampaign(campaignId);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      const text = req.file.buffer.toString("utf8");
+      const records = parse(text, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as Array<{
+        creator_name?: string;
+        handle?: string;
+        url?: string;
+        status?: string;
+      }>;
+
+      const validStatuses = new Set(postStatusOptions);
+      const links = records
+        .filter((r) => r.creator_name || r.url)
+        .map((r) => {
+          const url = r.url?.trim() || `placeholder://${Date.now()}-${Math.random()}`;
+          const platform = url.startsWith("placeholder://") ? "Unknown" : getPlatformFromUrl(url);
+          const rawStatus = r.status?.toLowerCase()?.trim() || "pending";
+          const postStatus = validStatuses.has(rawStatus as any) ? rawStatus : "pending";
+          return {
+            campaignId,
+            url,
+            platform,
+            creatorName: r.creator_name?.trim() || r.handle?.trim() || null,
+            postStatus: postStatus as "pending" | "briefed" | "active" | "done",
+            views: 0,
+            likes: 0,
+            comments: 0,
+            shares: 0,
+          };
+        });
+
+      if (!links.length) {
+        return res.status(400).json({ error: "No valid rows found in CSV file" });
+      }
+
+      const inserted = await storage.createSocialLinksBulk(links);
+      res.json({ ok: true, inserted });
+    } catch (error) {
+      console.error("Failed to import CSV:", error);
+      res.status(500).json({ error: "Failed to import CSV file" });
+    }
+  });
+
+  // ==================== CREATORS DATABASE ROUTES ====================
+
+  // Get all creators for the current user
+  app.get("/api/creators", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const creatorList = await storage.getCreators(userId);
+      res.json(creatorList);
+    } catch (error) {
+      console.error("Failed to fetch creators:", error);
+      res.status(500).json({ error: "Failed to fetch creators" });
+    }
+  });
+
+  // Search creators by name or handle
+  app.get("/api/creators/search", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const query = (req.query.q as string)?.trim();
+      if (!query) {
+        return res.json({ results: [] });
+      }
+
+      const results = await storage.searchCreators(userId, query);
+      res.json({ results });
+    } catch (error) {
+      console.error("Failed to search creators:", error);
+      res.status(500).json({ error: "Failed to search creators" });
+    }
+  });
+
+  // Import creators from CSV
+  app.post("/api/creators/import", isAuthenticated, upload.single("file"), async (req: any, res) => {
+    try {
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const text = req.file.buffer.toString("utf8");
+      const records = parse(text, {
+        columns: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as Array<{
+        name?: string;
+        handle?: string;
+        platform?: string;
+        notes?: string;
+      }>;
+
+      const creatorList = records
+        .filter((r) => r.name && r.handle)
+        .map((r) => ({
+          ownerId: userId,
+          name: r.name!.trim(),
+          handle: r.handle!.trim(),
+          platform: r.platform?.trim() || null,
+          notes: r.notes?.trim() || null,
+        }));
+
+      if (!creatorList.length) {
+        return res.status(400).json({ error: "No valid rows in CSV file. Required columns: name, handle" });
+      }
+
+      const inserted = await storage.createCreatorsBulk(creatorList);
+      res.json({ ok: true, inserted });
+    } catch (error) {
+      console.error("Failed to import creators CSV:", error);
+      res.status(500).json({ error: "Failed to import creators CSV" });
     }
   });
 

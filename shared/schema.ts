@@ -144,3 +144,22 @@ export const insertTeamMemberSchema = createInsertSchema(teamMembers).omit({
 
 export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
 export type TeamMember = typeof teamMembers.$inferSelect;
+
+// Creators database for searchable creator lookup
+export const creators = pgTable("creators", {
+  id: serial("id").primaryKey(),
+  ownerId: varchar("owner_id").notNull(),  // user who owns this creator entry
+  name: text("name").notNull(),
+  handle: text("handle").notNull(),
+  platform: text("platform"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertCreatorSchema = createInsertSchema(creators).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertCreator = z.infer<typeof insertCreatorSchema>;
+export type Creator = typeof creators.$inferSelect;

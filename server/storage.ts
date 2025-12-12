@@ -1,11 +1,12 @@
 import { db } from "./db";
-import { eq, desc, sql, asc, inArray, and } from "drizzle-orm";
+import { eq, desc, sql, asc, inArray, and, ilike, or } from "drizzle-orm";
 import {
   campaigns,
   socialLinks,
   engagementHistory,
   users,
   teamMembers,
+  creators,
   type Campaign,
   type InsertCampaign,
   type SocialLink,
@@ -17,6 +18,8 @@ import {
   type UpsertUser,
   type TeamMember,
   type InsertTeamMember,
+  type Creator,
+  type InsertCreator,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -56,6 +59,15 @@ export interface IStorage {
   getTeamMembers(ownerId: string): Promise<TeamMember[]>;
   addTeamMember(member: InsertTeamMember): Promise<TeamMember>;
   removeTeamMember(id: number, ownerId: string): Promise<boolean>;
+  
+  // Creators database
+  getCreators(ownerId: string): Promise<Creator[]>;
+  searchCreators(ownerId: string, query: string): Promise<Creator[]>;
+  createCreator(creator: InsertCreator): Promise<Creator>;
+  createCreatorsBulk(creators: InsertCreator[]): Promise<number>;
+  
+  // Bulk social links
+  createSocialLinksBulk(links: InsertSocialLink[]): Promise<number>;
   
   // Seeding
   seedDataIfEmpty(): Promise<void>;
@@ -314,6 +326,45 @@ export class DatabaseStorage implements IStorage {
       .where(and(eq(teamMembers.id, id), eq(teamMembers.ownerId, ownerId)))
       .returning();
     return deleted.length > 0;
+  }
+
+  // Creators database
+  async getCreators(ownerId: string): Promise<Creator[]> {
+    return await db.select().from(creators).where(eq(creators.ownerId, ownerId)).orderBy(desc(creators.createdAt));
+  }
+
+  async searchCreators(ownerId: string, query: string): Promise<Creator[]> {
+    const pattern = `%${query}%`;
+    return await db.select()
+      .from(creators)
+      .where(
+        and(
+          eq(creators.ownerId, ownerId),
+          or(
+            ilike(creators.name, pattern),
+            ilike(creators.handle, pattern)
+          )
+        )
+      )
+      .limit(10);
+  }
+
+  async createCreator(creator: InsertCreator): Promise<Creator> {
+    const [newCreator] = await db.insert(creators).values(creator).returning();
+    return newCreator;
+  }
+
+  async createCreatorsBulk(creatorList: InsertCreator[]): Promise<number> {
+    if (creatorList.length === 0) return 0;
+    const result = await db.insert(creators).values(creatorList).returning();
+    return result.length;
+  }
+
+  // Bulk social links
+  async createSocialLinksBulk(links: InsertSocialLink[]): Promise<number> {
+    if (links.length === 0) return 0;
+    const result = await db.insert(socialLinks).values(links).returning();
+    return result.length;
   }
 
   async seedDataIfEmpty(): Promise<void> {

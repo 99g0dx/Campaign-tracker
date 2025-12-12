@@ -1,0 +1,481 @@
+CSV upload for campaign posts
+
+Goal: On a campaign detail page, user clicks “Import CSV”, uploads a file like:
+
+creator_name,handle,url,status
+Jingle Beats,@jinglebeats,https://tiktok.com/...,Active
+Test Influencer,@testinfl,https://instagram.com/...,Pending
+
+
+Backend inserts rows into posts table.
+
+1.1. Backend route
+
+Install helpers:
+
+npm install multer csv-parse
+
+
+Create server/routes/campaignImport.ts:
+
+// server/routes/campaignImport.ts
+import express from "express";
+import multer from "multer";
+import { parse } from "csv-parse/sync";
+import { db } from "../db/client";
+import { posts } from "../db/schema";
+import { requireUser } from "../middleware/requireUser";
+import { eq, and } from "drizzle-orm";
+import { campaigns } from "../db/schema";
+
+const upload = multer({ storage: multer.memoryStorage() });
+const router = express.Router();
+
+router.post(
+  "/:id/import-posts",
+  requireUser,
+  upload.single("file"),
+  async (req, res) => {
+    const { id } = req.params;
+
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    // check campaign belongs to user
+    const [campaign] = await db
+      .select()
+      .from(campaigns)
+      .where(and(eq(campaigns.id, id), eq(campaigns.ownerId, req.userId)));
+
+    if (!campaign) {
+      return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    const text = req.file.buffer.toString("utf8");
+
+    const records = parse(text, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Array<{
+      creator_name?: string;
+      handle?: string;
+      url?: string;
+      status?: string;
+    }>;
+
+    const values = records
+      .filter((r) => r.creator_name && r.url)
+      .map((r) => ({
+        id: crypto.randomUUID(),
+        campaignId: id,
+        creatorName: r.creator_name,
+        platformHandle: r.handle ?? null,
+        url: r.url,
+        status: (r.status || "pending").toLowerCase(),
+        views: 0,
+        likes: 0,
+        comments: 0,
+        shares: 0,
+      }));
+
+    if (!values.length) {
+      return res
+        .status(400)
+        .json({ error: "No valid rows found in CSV file" });
+    }
+
+    await db.insert(posts).values(values);
+
+    res.json({ ok: true, inserted: values.length });
+  }
+);
+
+export default router;
+
+
+Mount in server/index.ts:
+
+import campaignImportRoutes from "./routes/campaignImport";
+
+app.use("/api/campaigns", campaignImportRoutes);
+
+1.2. Frontend: “Import CSV” button
+
+In CampaignDetail.tsx, near your “Add Link” button, add:
+
+const [importing, setImporting] = useState(false);
+
+async function handleImportCsv(e: React.ChangeEvent<HTMLInputElement>) {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  setImporting(true);
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const res = await fetch(`/api/campaigns/${campaign.id}/import-posts`, {
+      method: "POST",
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Import failed");
+
+    // reload posts list
+    await reloadCampaign();
+  } catch (err: any) {
+    alert(err.message);
+  } finally {
+    setImporting(false);
+    e.target.value = "";
+  }
+}
+
+
+UI:
+
+<div className="flex gap-2">
+  <label className="inline-flex items-center text-xs px-3 py-1.5 rounded-xl border border-slate-700 cursor-pointer">
+    Import CSV
+    <input
+      type="file"
+      accept=".csv"
+      className="hidden"
+      onChange={handleImportCsv}
+      disabled={importing}
+    />
+  </label>
+  <button
+    onClick={openAddPostModal}
+    className="text-xs px-3 py-1.5 rounded-xl bg-purple-500"
+  >
+    + Add Link
+  </button>
+</div>
+<p className="mt-1 text-[10px] text-slate-500">
+  CSV headers: creator_name, handle, url, status
+</p>
+
+
+Now someone with a sheet can export as CSV and import a full campaign in one go.
+
+2. Creator database and searchable handles
+
+Goal:
+
+User uploads a CSV with their full creator database.
+
+When adding a post or editing, they type the creator name or handle.
+
+A dropdown appears with matches, they click one, and the fields fill automatically.
+
+2.1. DB additions
+
+Add a creators table and link posts to it.
+
+// server/db/schema.ts
+export const creators = pgTable("creators", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  name: text("name").notNull(),
+  handle: text("handle").notNull(),
+  platform: text("platform"),
+  avatarUrl: text("avatar_url"),
+  notes: text("notes"),
+});
+
+export const posts = pgTable("posts", {
+  // existing columns...
+  creatorId: text("creator_id"), // optional link
+  creatorName: text("creator_name").notNull(),
+  platformHandle: text("platform_handle"),
+  // ...
+});
+
+
+Run migration.
+
+2.2. Backend: import creator database
+// server/routes/creatorImport.ts
+import express from "express";
+import multer from "multer";
+import { parse } from "csv-parse/sync";
+import { db } from "../db/client";
+import { creators } from "../db/schema";
+import { requireUser } from "../middleware/requireUser";
+
+const upload = multer({ storage: multer.memoryStorage() });
+const router = express.Router();
+
+router.post(
+  "/import",
+  requireUser,
+  upload.single("file"),
+  async (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    const text = req.file.buffer.toString("utf8");
+
+    const records = parse(text, {
+      columns: true,
+      skip_empty_lines: true,
+      trim: true,
+    }) as Array<{
+      name?: string;
+      handle?: string;
+      platform?: string;
+      notes?: string;
+    }>;
+
+    const rows = records
+      .filter((r) => r.name && r.handle)
+      .map((r) => ({
+        id: crypto.randomUUID(),
+        ownerId: req.userId,
+        name: r.name!,
+        handle: r.handle!,
+        platform: r.platform ?? null,
+        notes: r.notes ?? null,
+      }));
+
+    if (!rows.length) {
+      return res
+        .status(400)
+        .json({ error: "No valid rows in creator CSV file" });
+    }
+
+    await db.insert(creators).values(rows);
+
+    res.json({ ok: true, inserted: rows.length });
+  }
+);
+
+export default router;
+
+
+Mount:
+
+import creatorImportRoutes from "./routes/creatorImport";
+app.use("/api/creators", creatorImportRoutes);
+
+2.3. Backend: search endpoint
+// server/routes/creatorSearch.ts
+import express from "express";
+import { db } from "../db/client";
+import { creators } from "../db/schema";
+import { requireUser } from "../middleware/requireUser";
+import { ilike, eq, and } from "drizzle-orm";
+
+const router = express.Router();
+
+router.get("/search", requireUser, async (req, res) => {
+  const q = (req.query.q as string)?.trim();
+  if (!q) return res.json({ results: [] });
+
+  const pattern = `%${q}%`;
+
+  const results = await db
+    .select({
+      id: creators.id,
+      name: creators.name,
+      handle: creators.handle,
+      platform: creators.platform,
+    })
+    .from(creators)
+    .where(
+      and(
+        eq(creators.ownerId, req.userId),
+        ilike(creators.name, pattern).or(ilike(creators.handle, pattern))
+      )
+    )
+    .limit(10);
+
+  res.json({ results });
+});
+
+export default router;
+
+
+Mount:
+
+import creatorSearchRoutes from "./routes/creatorSearch";
+app.use("/api/creators", creatorSearchRoutes);
+
+2.4. Frontend: searchable creator input
+
+Create a small typeahead component:
+
+// client/src/components/CreatorSelect.tsx
+import { useEffect, useState } from "react";
+
+type CreatorOption = {
+  id: string;
+  name: string;
+  handle: string;
+  platform?: string;
+};
+
+type Props = {
+  value: { id: string | null; name: string; handle: string };
+  onChange: (val: { id: string | null; name: string; handle: string }) => void;
+};
+
+export function CreatorSelect({ value, onChange }: Props) {
+  const [query, setQuery] = useState(value.name || value.handle || "");
+  const [options, setOptions] = useState<CreatorOption[]>([]);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const run = async () => {
+      if (!query || query.length < 2) {
+        setOptions([]);
+        return;
+      }
+      const res = await fetch(
+        `/api/creators/search?q=${encodeURIComponent(query)}`,
+        { signal: controller.signal }
+      );
+      const data = await res.json();
+      setOptions(data.results || []);
+      setOpen(true);
+    };
+    const t = setTimeout(run, 200);
+    return () => {
+      clearTimeout(t);
+      controller.abort();
+    };
+  }, [query]);
+
+  function handleSelect(opt: CreatorOption) {
+    onChange({
+      id: opt.id,
+      name: opt.name,
+      handle: opt.handle,
+    });
+    setQuery(`${opt.name} (${opt.handle})`);
+    setOpen(false);
+  }
+
+  return (
+    <div className="relative">
+      <input
+        className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+        placeholder="Search creator by name or handle"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          onChange({ ...value, id: null }); // if user edits manually
+        }}
+      />
+      {open && options.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full rounded-xl bg-slate-900 border border-slate-700 max-h-56 overflow-y-auto text-xs">
+          {options.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              onClick={() => handleSelect(opt)}
+              className="w-full text-left px-3 py-2 hover:bg-slate-800"
+            >
+              <div className="font-medium">
+                {opt.name}{" "}
+                <span className="text-slate-400">{opt.handle}</span>
+              </div>
+              {opt.platform && (
+                <div className="text-[10px] text-slate-500">
+                  {opt.platform}
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+Use it in your “Add Post” modal instead of a plain text input:
+
+const [creator, setCreator] = useState({
+  id: null as string | null,
+  name: "",
+  handle: "",
+});
+
+// in form JSX
+<CreatorSelect value={creator} onChange={setCreator} />
+
+
+When you submit, send both creatorId (if not null) and creatorName / platformHandle to the server and store them in posts.
+
+You can add another “Import creator CSV” button in Settings or Profile and point it at /api/creators/import using the same pattern as the campaign CSV.
+
+3. Shared campaign dashboard: metric filters on charts
+
+You already have metric toggles on your internal dashboard. Mirror the same state and UI on the shared page.
+
+In SharedCampaignPage.tsx, add:
+
+const [showViews, setShowViews] = useState(true);
+const [showLikes, setShowLikes] = useState(true);
+const [showComments, setShowComments] = useState(false);
+const [showShares, setShowShares] = useState(false);
+
+
+Above the chart in the shared view:
+
+<div className="flex flex-wrap items-center gap-2 mb-3">
+  <p className="text-xs text-slate-400 mr-2">Metrics</p>
+  <label className="inline-flex items-center gap-1 text-[11px]">
+    <input
+      type="checkbox"
+      checked={showViews}
+      onChange={(e) => setShowViews(e.target.checked)}
+    />
+    Views
+  </label>
+  <label className="inline-flex items-center gap-1 text-[11px]">
+    <input
+      type="checkbox"
+      checked={showLikes}
+      onChange={(e) => setShowLikes(e.target.checked)}
+    />
+    Likes
+  </label>
+  <label className="inline-flex items-center gap-1 text-[11px]">
+    <input
+      type="checkbox"
+      checked={showComments}
+      onChange={(e) => setShowComments(e.target.checked)}
+    />
+    Comments
+  </label>
+  <label className="inline-flex items-center gap-1 text-[11px]">
+    <input
+      type="checkbox"
+      checked={showShares}
+      onChange={(e) => setShowShares(e.target.checked)}
+    />
+    Shares
+  </label>
+</div>
+
+
+Then in the Recharts <LineChart> block on the shared page:
+
+<LineChart data={engagementHistory}>
+  <CartesianGrid strokeDasharray="3 3" />
+  <XAxis dataKey="label" />
+  <YAxis />
+  <Tooltip />
+  <Legend />
+  {showViews && <Line type="monotone" dataKey="views" dot={false} />}
+  {showLikes && <Line type="monotone" dataKey="likes" dot={false} />}
+  {showComments && (
+    <Line type="monotone" dataKey="comments" dot={false} />
+  )}
+  {showShares && <Line type="monotone" dataKey="shares" dot={false} />}
+</LineChart>
