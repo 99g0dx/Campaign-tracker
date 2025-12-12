@@ -165,3 +165,62 @@ export const insertCreatorSchema = createInsertSchema(creators).omit({
 
 export type InsertCreator = z.infer<typeof insertCreatorSchema>;
 export type Creator = typeof creators.$inferSelect;
+
+// Scrape job status options
+export const scrapeJobStatusOptions = ["queued", "running", "done", "failed"] as const;
+export type ScrapeJobStatus = typeof scrapeJobStatusOptions[number];
+
+// Scrape task status options
+export const scrapeTaskStatusOptions = ["queued", "running", "success", "failed"] as const;
+export type ScrapeTaskStatus = typeof scrapeTaskStatusOptions[number];
+
+// Scrape jobs table - tracks batch scrape operations
+export const scrapeJobs = pgTable("scrape_jobs", {
+  id: serial("id").primaryKey(),
+  campaignId: integer("campaign_id").references(() => campaigns.id).notNull(),
+  status: text("status").notNull().default("queued"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  completedAt: timestamp("completed_at"),
+});
+
+export const insertScrapeJobSchema = createInsertSchema(scrapeJobs).omit({
+  id: true,
+  createdAt: true,
+  completedAt: true,
+});
+
+export type InsertScrapeJob = z.infer<typeof insertScrapeJobSchema>;
+export type ScrapeJob = typeof scrapeJobs.$inferSelect;
+
+// Scrape tasks table - individual scraping tasks within a job
+export const scrapeTasks = pgTable("scrape_tasks", {
+  id: serial("id").primaryKey(),
+  jobId: integer("job_id").references(() => scrapeJobs.id).notNull(),
+  socialLinkId: integer("social_link_id").references(() => socialLinks.id).notNull(),
+  url: text("url").notNull(),
+  platform: text("platform").notNull(),
+  status: text("status").notNull().default("queued"),
+  attempts: integer("attempts").notNull().default(0),
+  lastError: text("last_error"),
+  resultViews: integer("result_views"),
+  resultLikes: integer("result_likes"),
+  resultComments: integer("result_comments"),
+  resultShares: integer("result_shares"),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+});
+
+export const insertScrapeTaskSchema = createInsertSchema(scrapeTasks).omit({
+  id: true,
+  updatedAt: true,
+});
+
+export type InsertScrapeTask = z.infer<typeof insertScrapeTaskSchema>;
+export type ScrapeTask = typeof scrapeTasks.$inferSelect;
+
+// Job with aggregated task stats
+export type ScrapeJobWithStats = ScrapeJob & {
+  totalTasks: number;
+  completedTasks: number;
+  successfulTasks: number;
+  failedTasks: number;
+};
