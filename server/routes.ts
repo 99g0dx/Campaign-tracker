@@ -19,6 +19,72 @@ const upload = multer({
   },
 });
 
+// Rate limiting for shared campaign password attempts
+const passwordAttempts = new Map<string, { count: number; lastAttempt: number; lockedUntil: number | null }>();
+const MAX_ATTEMPTS = 5;
+const LOCKOUT_DURATION = 15 * 60 * 1000; // 15 minutes
+const ATTEMPT_WINDOW = 60 * 60 * 1000; // 1 hour
+
+function getRateLimitKey(ip: string, slug: string): string {
+  return `${ip}:${slug}`;
+}
+
+function checkRateLimit(ip: string, slug: string): { allowed: boolean; remainingAttempts: number; lockedUntil: number | null } {
+  const key = getRateLimitKey(ip, slug);
+  const now = Date.now();
+  const record = passwordAttempts.get(key);
+  
+  if (!record) {
+    return { allowed: true, remainingAttempts: MAX_ATTEMPTS, lockedUntil: null };
+  }
+  
+  // Check if locked
+  if (record.lockedUntil && now < record.lockedUntil) {
+    return { allowed: false, remainingAttempts: 0, lockedUntil: record.lockedUntil };
+  }
+  
+  // Reset if window expired
+  if (now - record.lastAttempt > ATTEMPT_WINDOW) {
+    passwordAttempts.delete(key);
+    return { allowed: true, remainingAttempts: MAX_ATTEMPTS, lockedUntil: null };
+  }
+  
+  // Check attempt count
+  if (record.count >= MAX_ATTEMPTS) {
+    const lockedUntil = record.lastAttempt + LOCKOUT_DURATION;
+    if (now < lockedUntil) {
+      record.lockedUntil = lockedUntil;
+      return { allowed: false, remainingAttempts: 0, lockedUntil };
+    }
+    // Lockout expired, reset
+    passwordAttempts.delete(key);
+    return { allowed: true, remainingAttempts: MAX_ATTEMPTS, lockedUntil: null };
+  }
+  
+  return { allowed: true, remainingAttempts: MAX_ATTEMPTS - record.count, lockedUntil: null };
+}
+
+function recordFailedAttempt(ip: string, slug: string): void {
+  const key = getRateLimitKey(ip, slug);
+  const now = Date.now();
+  const record = passwordAttempts.get(key);
+  
+  if (!record || now - record.lastAttempt > ATTEMPT_WINDOW) {
+    passwordAttempts.set(key, { count: 1, lastAttempt: now, lockedUntil: null });
+  } else {
+    record.count += 1;
+    record.lastAttempt = now;
+    if (record.count >= MAX_ATTEMPTS) {
+      record.lockedUntil = now + LOCKOUT_DURATION;
+    }
+  }
+}
+
+function clearAttempts(ip: string, slug: string): void {
+  const key = getRateLimitKey(ip, slug);
+  passwordAttempts.delete(key);
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -33,7 +99,7 @@ export async function registerRoutes(
   await storage.seedDataIfEmpty();
 
   // Get all campaigns with aggregated stats
-  app.get("/api/campaigns", async (_req, res) => {
+  app.get("/api/campaigns", isAuthenticated, async (_req, res) => {
     try {
       const campaigns = await storage.getCampaignsWithStats();
       res.json(campaigns);
@@ -44,7 +110,7 @@ export async function registerRoutes(
   });
 
   // Get a single campaign
-  app.get("/api/campaigns/:id", async (req, res) => {
+  app.get("/api/campaigns/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -62,7 +128,7 @@ export async function registerRoutes(
   });
 
   // Create a new campaign
-  app.post("/api/campaigns", async (req, res) => {
+  app.post("/api/campaigns", isAuthenticated, async (req, res) => {
     try {
       const parsed = insertCampaignSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -77,7 +143,7 @@ export async function registerRoutes(
   });
 
   // Update campaign status
-  app.patch("/api/campaigns/:id/status", async (req, res) => {
+  app.patch("/api/campaigns/:id/status", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -105,7 +171,7 @@ export async function registerRoutes(
   });
 
   // Get all social links
-  app.get("/api/social-links", async (_req, res) => {
+  app.get("/api/social-links", isAuthenticated, async (_req, res) => {
     try {
       const links = await storage.getSocialLinks();
       res.json(links);
@@ -116,7 +182,7 @@ export async function registerRoutes(
   });
 
   // Get social links for a specific campaign
-  app.get("/api/campaigns/:campaignId/social-links", async (req, res) => {
+  app.get("/api/campaigns/:campaignId/social-links", isAuthenticated, async (req, res) => {
     try {
       const campaignId = parseInt(req.params.campaignId, 10);
       if (isNaN(campaignId)) {
@@ -131,7 +197,7 @@ export async function registerRoutes(
   });
 
   // Add a new social link and scrape data
-  app.post("/api/social-links", async (req, res) => {
+  app.post("/api/social-links", isAuthenticated, async (req, res) => {
     try {
       const urlSchema = z.object({
         url: z.string(),
@@ -224,7 +290,7 @@ export async function registerRoutes(
   });
 
   // Rescrape a social link
-  app.post("/api/social-links/:id/rescrape", async (req, res) => {
+  app.post("/api/social-links/:id/rescrape", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -275,7 +341,7 @@ export async function registerRoutes(
   });
 
   // Rescrape all social links for a campaign
-  app.post("/api/campaigns/:id/rescrape-all", async (req, res) => {
+  app.post("/api/campaigns/:id/rescrape-all", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -342,7 +408,7 @@ export async function registerRoutes(
   });
 
   // Get campaign engagement history for charts
-  app.get("/api/campaigns/:id/engagement-history", async (req, res) => {
+  app.get("/api/campaigns/:id/engagement-history", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -363,7 +429,7 @@ export async function registerRoutes(
   });
 
   // Update social link (post status, creator name, url)
-  app.patch("/api/social-links/:id", async (req, res) => {
+  app.patch("/api/social-links/:id", isAuthenticated, async (req, res) => {
     try {
       const id = parseInt(req.params.id, 10);
       if (isNaN(id)) {
@@ -581,6 +647,19 @@ export async function registerRoutes(
     try {
       const { slug } = req.params;
       const { password } = req.body;
+      const clientIp = req.ip || req.socket.remoteAddress || "unknown";
+
+      // Check rate limit before processing
+      const rateLimit = checkRateLimit(clientIp, slug);
+      if (!rateLimit.allowed) {
+        const minutesLeft = rateLimit.lockedUntil 
+          ? Math.ceil((rateLimit.lockedUntil - Date.now()) / 60000)
+          : 15;
+        return res.status(429).json({ 
+          error: `Too many failed attempts. Try again in ${minutesLeft} minutes.`,
+          lockedUntil: rateLimit.lockedUntil,
+        });
+      }
 
       const campaign = await storage.getCampaignByShareSlug(slug);
       if (!campaign || !campaign.shareEnabled || !campaign.sharePasswordHash) {
@@ -589,8 +668,16 @@ export async function registerRoutes(
 
       const isValid = await bcrypt.compare(password, campaign.sharePasswordHash);
       if (!isValid) {
-        return res.status(401).json({ error: "Incorrect password" });
+        recordFailedAttempt(clientIp, slug);
+        const updatedLimit = checkRateLimit(clientIp, slug);
+        return res.status(401).json({ 
+          error: "Incorrect password",
+          remainingAttempts: updatedLimit.remainingAttempts,
+        });
       }
+
+      // Clear attempts on successful login
+      clearAttempts(clientIp, slug);
 
       // Set cookie for access
       res.cookie(COOKIE_PREFIX + slug, "ok", {
