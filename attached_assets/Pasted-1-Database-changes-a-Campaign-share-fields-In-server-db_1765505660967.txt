@@ -1,0 +1,891 @@
+1. Database changes
+a) Campaign share fields
+
+In server/db/schema.ts add columns to campaigns:
+
+// server/db/schema.ts
+import { pgTable, text, boolean, timestamp } from "drizzle-orm/pg-core";
+
+export const campaigns = pgTable("campaigns", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  // ...existing fields
+
+  shareSlug: text("share_slug"),               // public slug
+  sharePasswordHash: text("share_password_hash"),
+  shareEnabled: boolean("share_enabled").default(false).notNull(),
+  shareCreatedAt: timestamp("share_created_at"),
+});
+
+
+Run your migration.
+
+b) Team members table
+export const teamMembers = pgTable("team_members", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),  // user who owns this workspace
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  role: text("role"),                   // e.g. "Analyst", "Manager"
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+2. Backend for password locked campaign share
+
+Install bcrypt if you do not already have it:
+
+npm install bcrypt
+
+a) Helper to require auth
+
+You likely have something like this already. Keep or adapt:
+
+// server/middleware/requireUser.ts
+export function requireUser(req, res, next) {
+  const userId = req.session?.userId;
+  if (!userId) return res.status(401).json({ error: "Not authenticated" });
+  req.userId = userId;
+  next();
+}
+
+b) Route to enable or update share
+// server/routes/campaignShare.ts
+import express from "express";
+import { db } from "../db/client";
+import { campaigns } from "../db/schema";
+import { eq, and } from "drizzle-orm";
+import bcrypt from "bcrypt";
+import crypto from "crypto";
+import { requireUser } from "../middleware/requireUser";
+
+const router = express.Router();
+
+// Enable or update share settings
+router.post("/:id/share", requireUser, async (req, res) => {
+  const { id } = req.params;
+  const { enable, password } = req.body as {
+    enable: boolean;
+    password?: string;
+  };
+
+  const [existing] = await db
+    .select()
+    .from(campaigns)
+    .where(and(eq(campaigns.id, id), eq(campaigns.ownerId, req.userId)));
+
+  if (!existing) {
+    return res.status(404).json({ error: "Campaign not found" });
+  }
+
+  let shareSlug = existing.shareSlug;
+  let sharePasswordHash = existing.sharePasswordHash;
+
+  if (enable) {
+    if (!password) {
+      return res.status(400).json({ error: "Password is required" });
+    }
+
+    // generate slug first time or keep existing
+    if (!shareSlug) {
+      shareSlug = crypto.randomBytes(12).toString("hex");
+    }
+
+    sharePasswordHash = await bcrypt.hash(password, 10);
+  } else {
+    shareSlug = null;
+    sharePasswordHash = null;
+  }
+
+  const [updated] = await db
+    .update(campaigns)
+    .set({
+      shareEnabled: enable,
+      shareSlug,
+      sharePasswordHash,
+      shareCreatedAt: enable ? new Date() : null,
+    })
+    .where(eq(campaigns.id, id))
+    .returning();
+
+  res.json({
+    id: updated.id,
+    shareEnabled: updated.shareEnabled,
+    shareSlug: updated.shareSlug,
+  });
+});
+
+export default router;
+
+
+Mount it:
+
+// server/index.ts
+import campaignShareRoutes from "./routes/campaignShare";
+
+app.use("/api/campaigns", campaignShareRoutes);
+
+c) Public read routes with password check
+
+For public viewers you can use a cookie or a small JWT. Here is a simple cookie approach.
+
+// server/routes/publicCampaign.ts
+import express from "express";
+import { db } from "../db/client";
+import { campaigns } from "../db/schema";
+import { eq } from "drizzle-orm";
+import bcrypt from "bcrypt";
+
+const router = express.Router();
+
+// key used in cookie
+const COOKIE_PREFIX = "campaign_access_";
+
+// Step 1: verify password
+router.post("/:slug/verify", async (req, res) => {
+  const { slug } = req.params;
+  const { password } = req.body;
+
+  const [campaign] = await db
+    .select()
+    .from(campaigns)
+    .where(eq(campaigns.shareSlug, slug));
+
+  if (!campaign || !campaign.shareEnabled || !campaign.sharePasswordHash) {
+    return res.status(404).json({ error: "Campaign not shareable" });
+  }
+
+  const ok = await bcrypt.compare(password, campaign.sharePasswordHash);
+  if (!ok) {
+    return res.status(401).json({ error: "Incorrect password" });
+  }
+
+  // set a cookie that this browser can see the campaign
+  res.cookie(COOKIE_PREFIX + slug, "ok", {
+    httpOnly: true,
+    maxAge: 24 * 60 * 60 * 1000, // 1 day
+  });
+
+  res.json({ ok: true });
+});
+
+// Step 2: fetch campaign by slug if cookie is present
+router.get("/:slug", async (req, res) => {
+  const { slug } = req.params;
+  const cookieName = COOKIE_PREFIX + slug;
+
+  if (req.cookies?.[cookieName] !== "ok") {
+    return res.status(401).json({ error: "Locked" });
+  }
+
+  const [campaign] = await db
+    .select()
+    .from(campaigns)
+    .where(eq(campaigns.shareSlug, slug));
+
+  if (!campaign || !campaign.shareEnabled) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  // TODO: join with posts/creators as needed
+  res.json({ campaign });
+});
+
+export default router;
+
+
+Mount it:
+
+import publicCampaignRoutes from "./routes/publicCampaign";
+app.use("/api/public/campaigns", publicCampaignRoutes);
+
+3. Frontend - Share campaign UI
+a) Share button
+
+In your Campaign Detail header, add a button:
+
+// client/src/features/campaigns/CampaignHeader.tsx
+import { useState } from "react";
+import ShareCampaignModal from "./ShareCampaignModal";
+
+export function CampaignHeader({ campaign }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="flex items-center justify-between mb-4">
+      <div>
+        <h1 className="text-xl font-semibold">{campaign.name}</h1>
+        <p className="text-xs text-slate-400">{campaign.platform}</p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => setOpen(true)}
+          className="rounded-xl border border-slate-700 px-3 py-1 text-xs"
+        >
+          Share
+        </button>
+      </div>
+
+      {open && (
+        <ShareCampaignModal
+          campaign={campaign}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+b) Share modal
+// client/src/features/campaigns/ShareCampaignModal.tsx
+import { useState } from "react";
+
+type Props = {
+  campaign: { id: string; shareSlug?: string; shareEnabled?: boolean };
+  onClose: () => void;
+};
+
+export default function ShareCampaignModal({ campaign, onClose }: Props) {
+  const [enable, setEnable] = useState(!!campaign.shareEnabled);
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [link, setLink] = useState<string | null>(
+    campaign.shareEnabled && campaign.shareSlug
+      ? `${window.location.origin}/share/${campaign.shareSlug}`
+      : null
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/campaigns/${campaign.id}/share`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enable, password: enable ? password : undefined }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not update share");
+
+      if (data.shareEnabled && data.shareSlug) {
+        setLink(`${window.location.origin}/share/${data.shareSlug}`);
+      } else {
+        setLink(null);
+      }
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50">
+      <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-slate-700">
+        <h2 className="text-lg font-semibold mb-2">Share campaign</h2>
+        <p className="text-xs text-slate-400 mb-4">
+          Create a password protected link that you can share with your team or
+          clients. They will only see this campaign and its stats.
+        </p>
+
+        <form className="space-y-4" onSubmit={handleSave}>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={enable}
+              onChange={(e) => setEnable(e.target.checked)}
+            />
+            Enable share link
+          </label>
+
+          {enable && (
+            <div className="space-y-1">
+              <label className="text-xs text-slate-300">Password</label>
+              <input
+                type="password"
+                className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Choose a password viewers must enter"
+                required
+              />
+            </div>
+          )}
+
+          {link && enable && (
+            <div className="space-y-1">
+              <label className="text-xs text-slate-300">Share link</label>
+              <div className="flex items-center gap-2">
+                <input
+                  readOnly
+                  className="flex-1 rounded-xl bg-slate-800 px-3 py-2 text-xs"
+                  value={link}
+                />
+                <button
+                  type="button"
+                  className="text-xs border border-slate-700 rounded-xl px-2 py-1"
+                  onClick={() => navigator.clipboard.writeText(link)}
+                >
+                  Copy
+                </button>
+              </div>
+            </div>
+          )}
+
+          {error && <p className="text-xs text-red-400">{error}</p>}
+
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs px-3 py-1 rounded-xl border border-slate-700"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="text-xs px-3 py-1 rounded-xl bg-purple-500 disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+4. Public share page with password gate
+
+Add route:
+
+// client/src/App.tsx
+import SharedCampaignPage from "./pages/SharedCampaignPage";
+
+<Routes>
+  {/* existing routes */}
+  <Route path="/share/:slug" element={<SharedCampaignPage />} />
+</Routes>
+
+
+Page:
+
+// client/src/pages/SharedCampaignPage.tsx
+import { useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import CampaignDetailView from "../features/campaigns/CampaignDetailView";
+
+type Campaign = any; // replace with your type
+
+export default function SharedCampaignPage() {
+  const { slug } = useParams<{ slug: string }>();
+  const [campaign, setCampaign] = useState<Campaign | null>(null);
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [unlocked, setUnlocked] = useState(false);
+
+  // try to fetch directly, in case cookie is already set
+  useEffect(() => {
+    if (!slug) return;
+    fetch(`/api/public/campaigns/${slug}`)
+      .then(async (res) => {
+        if (res.ok) {
+          const data = await res.json();
+          setCampaign(data.campaign);
+          setUnlocked(true);
+        }
+      })
+      .catch(() => {});
+  }, [slug]);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!slug) return;
+    setChecking(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/public/campaigns/${slug}/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Incorrect password");
+
+      const res2 = await fetch(`/api/public/campaigns/${slug}`);
+      if (!res2.ok) throw new Error("Could not load campaign");
+      const data2 = await res2.json();
+      setCampaign(data2.campaign);
+      setUnlocked(true);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setChecking(false);
+    }
+  }
+
+  if (unlocked && campaign) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-white">
+        <div className="max-w-5xl mx-auto px-4 py-6">
+          <p className="text-xs text-slate-500 mb-2">
+            Shared campaign - view only
+          </p>
+          <CampaignDetailView campaign={campaign} readOnly />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+      <div className="w-full max-w-md rounded-2xl bg-slate-900 p-6 border border-slate-700">
+        <h1 className="text-lg font-semibold mb-2">Enter campaign password</h1>
+        <p className="text-xs text-slate-400 mb-4">
+          This campaign is protected. Ask the owner for the password if you do
+          not have it.
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <input
+            type="password"
+            className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            required
+          />
+          {error && <p className="text-xs text-red-400">{error}</p>}
+          <button
+            type="submit"
+            disabled={checking}
+            className="w-full rounded-xl bg-purple-500 py-2 text-sm font-medium disabled:opacity-60"
+          >
+            {checking ? "Checking..." : "Unlock campaign"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+
+Make sure CampaignDetailView respects readOnly so people cannot edit from the shared link.
+
+5. Profile page - details, password, team members
+
+Important: if you still use Replit Auth only, you cannot change the actual Replit password inside your app. "Change password" here only makes sense if you have your own email plus password login. If you want that, we can wire it up next.
+
+I will assume you already have users table with name, email, phone and a password hash column.
+
+a) Backend routes
+// server/routes/profile.ts
+import express from "express";
+import { db } from "../db/client";
+import { users, teamMembers } from "../db/schema";
+import { eq } from "drizzle-orm";
+import bcrypt from "bcrypt";
+import { requireUser } from "../middleware/requireUser";
+
+const router = express.Router();
+
+// Get current user profile
+router.get("/", requireUser, async (req, res) => {
+  const [user] = await db
+    .select({
+      id: users.id,
+      email: users.email,
+      fullName: users.fullName,
+      phone: users.phone,
+    })
+    .from(users)
+    .where(eq(users.id, req.userId));
+
+  res.json({ user });
+});
+
+// Update details
+router.put("/", requireUser, async (req, res) => {
+  const { fullName, phone } = req.body;
+
+  const [user] = await db
+    .update(users)
+    .set({ fullName, phone })
+    .where(eq(users.id, req.userId))
+    .returning();
+
+  res.json({ user });
+});
+
+// Change password
+router.post("/password", requireUser, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  const [user] = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, req.userId));
+
+  if (!user || !user.passwordHash) {
+    return res
+      .status(400)
+      .json({ error: "Password login is not enabled for this account" });
+  }
+
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!ok) return res.status(401).json({ error: "Current password is wrong" });
+
+  const newHash = await bcrypt.hash(newPassword, 10);
+  await db
+    .update(users)
+    .set({ passwordHash: newHash })
+    .where(eq(users.id, req.userId));
+
+  res.json({ ok: true });
+});
+
+// Team members
+router.get("/team", requireUser, async (req, res) => {
+  const rows = await db
+    .select()
+    .from(teamMembers)
+    .where(eq(teamMembers.ownerId, req.userId));
+
+  res.json({ members: rows });
+});
+
+router.post("/team", requireUser, async (req, res) => {
+  const { name, email, role } = req.body;
+
+  const [member] = await db
+    .insert(teamMembers)
+    .values({
+      id: crypto.randomUUID(),
+      ownerId: req.userId,
+      name,
+      email,
+      role,
+    })
+    .returning();
+
+  res.json({ member });
+});
+
+router.delete("/team/:id", requireUser, async (req, res) => {
+  const { id } = req.params;
+  await db
+    .delete(teamMembers)
+    .where(
+      and(eq(teamMembers.id, id), eq(teamMembers.ownerId, req.userId))
+    );
+  res.json({ ok: true });
+});
+
+export default router;
+
+
+Mount:
+
+import profileRoutes from "./routes/profile";
+app.use("/api/profile", profileRoutes);
+
+b) Profile page UI
+
+Add route:
+
+// client/src/App.tsx
+import ProfilePage from "./pages/ProfilePage";
+
+<Routes>
+  {/* protected part of the app */}
+  <Route path="/profile" element={<ProfilePage />} />
+</Routes>
+
+
+Page:
+
+// client/src/pages/ProfilePage.tsx
+import { useEffect, useState } from "react";
+
+type User = {
+  id: string;
+  email: string;
+  fullName?: string;
+  phone?: string;
+};
+
+type Member = {
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+};
+
+export default function ProfilePage() {
+  const [user, setUser] = useState<User | null>(null);
+  const [members, setMembers] = useState<Member[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // forms
+  const [fullName, setFullName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [teamName, setTeamName] = useState("");
+  const [teamEmail, setTeamEmail] = useState("");
+  const [teamRole, setTeamRole] = useState("");
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [uRes, tRes] = await Promise.all([
+          fetch("/api/profile"),
+          fetch("/api/profile/team"),
+        ]);
+        const uData = await uRes.json();
+        const tData = await tRes.json();
+        setUser(uData.user);
+        setMembers(tData.members || []);
+        setFullName(uData.user?.fullName || "");
+        setPhone(uData.user?.phone || "");
+      } catch (err: any) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  async function saveDetails(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const res = await fetch("/api/profile", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fullName, phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not save profile");
+      setUser(data.user);
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  async function changePassword(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const res = await fetch("/api/profile/password", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not change password");
+      setCurrentPassword("");
+      setNewPassword("");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  async function addMember(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    try {
+      const res = await fetch("/api/profile/team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: teamName,
+          email: teamEmail,
+          role: teamRole,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not add member");
+      setMembers((prev) => [...prev, data.member]);
+      setTeamName("");
+      setTeamEmail("");
+      setTeamRole("");
+    } catch (err: any) {
+      setError(err.message);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+        <p className="text-sm text-slate-300">Loading profile...</p>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950 text-white">
+        <p className="text-sm text-red-400">Profile not found</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-white">
+      <div className="max-w-4xl mx-auto px-4 py-8 space-y-8">
+        <h1 className="text-2xl font-semibold mb-2">Profile</h1>
+        <p className="text-xs text-slate-400">
+          Manage your account details, password and team members.
+        </p>
+
+        {error && <p className="text-xs text-red-400">{error}</p>}
+
+        {/* Account details */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-4">
+          <h2 className="text-sm font-semibold">Account details</h2>
+          <form onSubmit={saveDetails} className="space-y-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-slate-400">Full name</label>
+                <input
+                  className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400">Email</label>
+                <input
+                  className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                  value={user.email}
+                  disabled
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400">Phone</label>
+                <input
+                  className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                />
+              </div>
+            </div>
+            <button
+              type="submit"
+              className="mt-2 rounded-xl bg-purple-500 px-4 py-2 text-xs font-medium"
+            >
+              Save details
+            </button>
+          </form>
+        </section>
+
+        {/* Password */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-4">
+          <h2 className="text-sm font-semibold">Password</h2>
+          <form onSubmit={changePassword} className="space-y-3 max-w-md">
+            <div>
+              <label className="text-xs text-slate-400">Current password</label>
+              <input
+                type="password"
+                className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-400">New password</label>
+              <input
+                type="password"
+                className="w-full rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+            </div>
+            <button
+              type="submit"
+              className="rounded-xl bg-slate-700 px-4 py-2 text-xs font-medium"
+            >
+              Change password
+            </button>
+          </form>
+        </section>
+
+        {/* Team members */}
+        <section className="rounded-2xl border border-slate-800 bg-slate-900/60 p-6 space-y-4">
+          <h2 className="text-sm font-semibold">Team members</h2>
+          <p className="text-xs text-slate-400">
+            Invite teammates so they can log in and see campaigns under your
+            workspace.
+          </p>
+
+          <form
+            onSubmit={addMember}
+            className="grid grid-cols-1 md:grid-cols-3 gap-3"
+          >
+            <input
+              className="rounded-xl bg-slate-800 px-3 py-2 text-sm"
+              placeholder="Name"
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+              required
+            />
+            <input
+              className="rounded-xl bg-slate-800 px-3 py-2 text-sm"
+              placeholder="Email"
+              type="email"
+              value={teamEmail}
+              onChange={(e) => setTeamEmail(e.target.value)}
+              required
+            />
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-xl bg-slate-800 px-3 py-2 text-sm"
+                placeholder="Role (optional)"
+                value={teamRole}
+                onChange={(e) => setTeamRole(e.target.value)}
+              />
+              <button
+                type="submit"
+                className="rounded-xl bg-purple-500 px-4 py-2 text-xs font-medium"
+              >
+                Add
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-4 space-y-2">
+            {members.map((m) => (
+              <div
+                key={m.id}
+                className="flex items-center justify-between text-xs bg-slate-800/60 rounded-xl px-3 py-2"
+              >
+                <div>
+                  <p className="font-medium">{m.name}</p>
+                  <p className="text-slate-400">{m.email}</p>
+                  {m.role && (
+                    <p className="text-slate-500">Role: {m.role}</p>
+                  )}
+                </div>
+                {/* You can add a remove button later */}
+              </div>
+            ))}
+            {members.length === 0 && (
+              <p className="text-xs text-slate-500">
+                No team members yet. Add someone above.
+              </p>
+            )}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}

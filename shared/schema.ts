@@ -11,11 +11,20 @@ export const campaigns = pgTable("campaigns", {
   songArtist: text("song_artist"),
   status: text("status").notNull().default("Active"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // Sharing fields
+  shareSlug: text("share_slug"),
+  sharePasswordHash: text("share_password_hash"),
+  shareEnabled: boolean("share_enabled").default(false).notNull(),
+  shareCreatedAt: timestamp("share_created_at"),
 });
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
   id: true,
   createdAt: true,
+  shareSlug: true,
+  sharePasswordHash: true,
+  shareEnabled: true,
+  shareCreatedAt: true,
 });
 
 export type InsertCampaign = z.infer<typeof insertCampaignSchema>;
@@ -113,3 +122,21 @@ export const users = pgTable("users", {
 
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
+
+// Team members table for profile management
+export const teamMembers = pgTable("team_members", {
+  id: serial("id").primaryKey(),
+  ownerId: varchar("owner_id").notNull(),  // user who owns this team member
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  role: text("role"),                      // e.g. "Analyst", "Manager"
+  createdAt: timestamp("created_at").defaultNow(),
+});
+
+export const insertTeamMemberSchema = createInsertSchema(teamMembers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
+export type TeamMember = typeof teamMembers.$inferSelect;
