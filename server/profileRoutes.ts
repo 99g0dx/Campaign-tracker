@@ -2,6 +2,7 @@ import { Router } from "express";
 import { storage } from "./storage";
 import crypto from "crypto";
 import { z } from "zod";
+import { sendVerificationEmail } from "./email";
 
 const router = Router();
 
@@ -129,9 +130,5 @@ router.post("/resend", async (req: any, res) => {
     res.status(500).json({ error: "Failed to resend code" });
   }
 });
-
-async function sendVerificationEmail(to: string, code: string) {
-  console.log(`[EMAIL] Sending verification code ${code} to ${to}`);
-}
 
 export default router;
