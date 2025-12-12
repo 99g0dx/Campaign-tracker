@@ -1,0 +1,189 @@
+. Backend: include status in the public share API
+
+Update your public campaign route so it returns posts (with status) as well as the campaign.
+
+// server/routes/publicCampaign.ts
+import { campaigns, posts } from "../db/schema";
+import { eq } from "drizzle-orm";
+
+router.get("/:slug", async (req, res) => {
+  const { slug } = req.params;
+  const cookieName = COOKIE_PREFIX + slug;
+
+  if (req.cookies?.[cookieName] !== "ok") {
+    return res.status(401).json({ error: "Locked" });
+  }
+
+  const [campaign] = await db
+    .select()
+    .from(campaigns)
+    .where(eq(campaigns.shareSlug, slug));
+
+  if (!campaign || !campaign.shareEnabled) {
+    return res.status(404).json({ error: "Not found" });
+  }
+
+  const creatorPosts = await db
+    .select({
+      id: posts.id,
+      creatorName: posts.creatorName,
+      platform: posts.platform,
+      status: posts.status,          // 👈 this is what we need
+      url: posts.url,
+      views: posts.views,
+      likes: posts.likes,
+      comments: posts.comments,
+      shares: posts.shares,
+    })
+    .from(posts)
+    .where(eq(posts.campaignId, campaign.id));
+
+  res.json({ campaign, creatorPosts });
+});
+
+
+So the shared endpoint now gives you creatorPosts with a status field.
+
+2. Frontend: show status on the shared dashboard
+
+In your SharedCampaignPage, when you fetch the public data, also store creatorPosts:
+
+// client/src/pages/SharedCampaignPage.tsx
+type CreatorPost = {
+  id: string;
+  creatorName: string;
+  platform: string;
+  status: "active" | "pending" | "briefed" | "completed" | string;
+  url?: string;
+  views: number;
+  likes: number;
+  comments: number;
+  shares: number;
+};
+
+const [creatorPosts, setCreatorPosts] = useState<CreatorPost[]>([]);
+
+async function loadCampaign(slug: string) {
+  const res = await fetch(`/api/public/campaigns/${slug}`);
+  if (!res.ok) return;
+  const data = await res.json();
+  setCampaign(data.campaign);
+  setCreatorPosts(data.creatorPosts || []);
+  setUnlocked(true);
+}
+
+
+Call loadCampaign(slug) both after verify and in the initial useEffect.
+
+Then, under your engagement chart on the shared page, render a read-only Creators & Posts table with status badges:
+
+function StatusBadge({ status }: { status: string }) {
+  const normalized = status.toLowerCase();
+  const label =
+    normalized === "active"
+      ? "Active"
+      : normalized === "pending"
+      ? "Pending"
+      : normalized === "briefed"
+      ? "Briefed"
+      : normalized === "completed"
+      ? "Completed"
+      : status;
+
+  const bg =
+    normalized === "active"
+      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/40"
+      : normalized === "completed"
+      ? "bg-sky-500/15 text-sky-300 border-sky-500/40"
+      : normalized === "briefed"
+      ? "bg-amber-500/15 text-amber-300 border-amber-500/40"
+      : "bg-slate-700/40 text-slate-200 border-slate-500/40";
+
+  return (
+    <span
+      className={`inline-flex items-center px-2 py-0.5 rounded-full border text-[10px] font-medium ${bg}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+
+And the table itself:
+
+{/* inside SharedCampaignPage, in the unlocked + campaign view */}
+<section className="mt-8 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+  <div className="flex items-center justify-between mb-3">
+    <h2 className="text-sm font-semibold">Creators &amp; Posts</h2>
+    <p className="text-[11px] text-slate-400">
+      View-only snapshot of creators, status, and engagements.
+    </p>
+  </div>
+
+  <div className="overflow-x-auto">
+    <table className="min-w-full text-xs">
+      <thead className="text-[10px] uppercase text-slate-400">
+        <tr className="border-b border-slate-800">
+          <th className="py-2 pr-4 text-left">Creator</th>
+          <th className="py-2 px-4 text-left">Platform</th>
+          <th className="py-2 px-4 text-left">Status</th>
+          <th className="py-2 px-4 text-right">Views</th>
+          <th className="py-2 px-4 text-right">Likes</th>
+          <th className="py-2 px-4 text-right">Comments</th>
+          <th className="py-2 px-4 text-right">Shares</th>
+        </tr>
+      </thead>
+      <tbody>
+        {creatorPosts.map((p) => (
+          <tr
+            key={p.id}
+            className="border-b border-slate-900/60 hover:bg-slate-900/70"
+          >
+            <td className="py-2 pr-4">
+              <div className="flex items-center gap-2">
+                <span className="text-slate-50">{p.creatorName}</span>
+                {p.url && (
+                  <a
+                    href={p.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-slate-400 underline"
+                  >
+                    View post
+                  </a>
+                )}
+              </div>
+            </td>
+            <td className="py-2 px-4">{p.platform}</td>
+            <td className="py-2 px-4">
+              <StatusBadge status={p.status} />
+            </td>
+            <td className="py-2 px-4 text-right">
+              {p.views?.toLocaleString() ?? "–"}
+            </td>
+            <td className="py-2 px-4 text-right">
+              {p.likes?.toLocaleString() ?? "–"}
+            </td>
+            <td className="py-2 px-4 text-right">
+              {p.comments?.toLocaleString() ?? "–"}
+            </td>
+            <td className="py-2 px-4 text-right">
+              {p.shares?.toLocaleString() ?? "–"}
+            </td>
+          </tr>
+        ))}
+
+        {creatorPosts.length === 0 && (
+          <tr>
+            <td
+              colSpan={7}
+              className="py-4 text-center text-[11px] text-slate-500"
+            >
+              No creators have been added to this campaign yet.
+            </td>
+          </tr>
+        )}
+      </tbody>
+    </table>
+  </div>
+</section>
