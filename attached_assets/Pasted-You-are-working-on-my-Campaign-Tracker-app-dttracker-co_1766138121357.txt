@@ -1,0 +1,75 @@
+You are working on my Campaign Tracker app (dttracker.com). On the Campaign Details page (e.g. /campaign/:id), the Engagement Trends chart and the KPI cards (Total Views, Total Likes, Comments, Shares) are not aligned with the scraped totals. Fix this by making ALL metrics (KPI cards + chart) use the same single source of truth and correct aggregation.
+
+GOAL
+
+1. “Total Views / Likes / Comments / Shares” must equal the sum of the latest scraped values for each UNIQUE post in the campaign.
+2. The Engagement Trends chart must not inflate numbers by double-counting repeated scrapes of the same post across dates.
+3. Pending creators (no link yet) must NOT affect totals or chart.
+4. Duplicate creators or duplicate rows must NOT create double counts.
+
+REQUIRED DATA RULES
+
+* Define a unique post key as: `${platform}:${normalizedPostUrl}` (or a stored postId if available).
+* A row with no post URL OR status = "Pending" is excluded from metrics.
+* “Latest totals” = for each unique post key, take the most recent scrape record (by scrapedAt/updatedAt) and use its views/likes/comments/shares in sums.
+* Chart series must be based on unique posts, not scrape events.
+
+IMPLEMENTATION DETAILS
+A) Normalization + dedupe
+
+* Normalize URLs before using them as keys:
+
+  * trim spaces
+  * remove trailing slashes
+  * remove IG/TikTok tracking params when possible (keep the canonical URL)
+* Build a map of unique posts:
+
+  * postsByKey[key] = { latestMetrics, history[] }
+
+B) KPI cards (single source of truth)
+
+* Compute totals ONLY from the deduped unique post map using latestMetrics:
+
+  * totalViews = sum(latest.views)
+  * totalLikes = sum(latest.likes)
+  * totalComments = sum(latest.comments)
+  * totalShares = sum(latest.shares)
+
+C) Engagement Trends chart (fix inflation)
+
+* For each day in the selected range:
+
+  * For each unique post key:
+
+    * find the LAST scrape on or before that day (or the max metrics that day)
+    * use that value as that post’s “as-of” metric for the day
+  * Then sum across unique posts to produce that day’s total.
+* This produces a cumulative “as-of” chart that matches the KPI total on the latest day.
+* Alternatively (optional toggle): compute daily delta = todayAsOf - yesterdayAsOf, but default to the cumulative as-of chart.
+
+D) Validate with the current campaign screenshot example
+
+* There are 3 Active Instagram posts with views 938, 1.9K, 11.2K. The Total Views should be ~14.0K (not 15.5K).
+* Likes should match the sum of latest likes for those 3 posts (114 + 192 + 1.5K ≈ 1.806K).
+* Chart last day value should match KPI totals.
+
+E) Update the UI to prevent confusion
+
+* Ensure chart uses the same filtered dataset (Active posts with URLs) as KPI cards.
+* Add a small helper text under the chart: “Totals are based on latest scrape per unique post; Pending rows excluded.”
+
+DELIVERABLES
+
+* Update the relevant page component and any data selectors/hooks.
+* If metrics are computed server-side, update the API to return:
+
+  * dedupedPosts[]
+  * totals {views, likes, comments, shares}
+  * timeSeries[] aligned to totals
+* Add 2-3 unit tests (or simple sanity checks) for:
+
+  * dedupe by normalized URL
+  * pending excluded
+  * chart last point equals KPI total
+
+Do not change the design, only the data logic and computations so the numbers are consistent and correct.

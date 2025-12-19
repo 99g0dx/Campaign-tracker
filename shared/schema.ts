@@ -40,6 +40,8 @@ export const socialLinks = pgTable("social_links", {
   id: serial("id").primaryKey(),
   campaignId: integer("campaign_id").references(() => campaigns.id).notNull(),
   url: text("url").notNull(),
+  canonicalUrl: text("canonical_url"),  // Normalized URL for deduplication
+  postKey: text("post_key"),            // Unique key: platform:canonicalUrl
   platform: text("platform").notNull(),
   postId: text("post_id"),
   creatorName: text("creator_name"),
@@ -74,6 +76,25 @@ export type CampaignWithStats = Campaign & {
   totalShares: number;
   totalEngagement: number;
   postCount: number;
+};
+
+// Unified campaign metrics response (single source of truth)
+export type CampaignMetrics = {
+  totals: {
+    views: number;
+    likes: number;
+    comments: number;
+    shares: number;
+  };
+  timeSeries: {
+    date: string;
+    views: number;
+    likes: number;
+    comments: number;
+    shares: number;
+  }[];
+  trackedPostsCount: number;
+  lastUpdatedAt: string | null;
 };
 
 // Engagement history for tracking metrics over time

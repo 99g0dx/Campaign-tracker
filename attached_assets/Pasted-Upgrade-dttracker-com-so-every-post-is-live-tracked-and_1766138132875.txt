@@ -1,0 +1,115 @@
+Upgrade dttracker.com so every post is live-tracked and the KPI totals + Engagement Trends chart always align.
+
+CURRENT PROBLEM
+
+* KPI cards (Total Views/Likes/Comments/Shares) and the Engagement Trends chart disagree because repeated scrapes, duplicates, and pending rows are being counted inconsistently.
+
+GOAL
+
+1. Each post should be tracked continuously (at a chosen refresh interval) and stored as a time series.
+2. KPI cards must always equal the SUM of the LATEST metrics snapshot for each unique post.
+3. Engagement Trends chart must be derived from the SAME tracked snapshots so the last chart point equals the KPI totals.
+4. Pending rows (no post URL) must never affect metrics.
+5. Duplicate links must be deduped by canonicalized URL so the same post cannot be counted twice.
+
+DATA MODEL (ADD THESE TABLES OR COLLECTIONS)
+A) posts
+
+* id
+* campaignId
+* creatorId
+* platform (instagram|tiktok|x|youtube)
+* postUrlOriginal
+* postUrlCanonical (normalized URL used for unique key)
+* postKey UNIQUE = `${platform}:${postUrlCanonical}`
+* status (active|pending|archived)
+* lastScrapedAt
+* lastMetricsJson { views, likes, comments, shares }
+
+B) post_metrics (time series)
+
+* id
+* postId (FK)
+* campaignId
+* scrapedAt (datetime)
+* views INT
+* likes INT
+* comments INT
+* shares INT
+  Indexes: (postId, scrapedAt), (campaignId, scrapedAt)
+
+URL NORMALIZATION (REQUIRED)
+
+* trim whitespace
+* remove trailing slash
+* remove query params like igsh, utm_*, fbclid etc where possible
+* store canonical version in postUrlCanonical
+* enforce unique constraint on postKey so duplicates are impossible
+
+LIVE TRACKING ENGINE
+Implement a background job (server-side) that runs every X minutes and updates all Active posts:
+
+* Find all posts where status=active and postUrlCanonical is not null
+* For each post:
+
+  * scrape current metrics via the existing scraper
+  * write a new row in post_metrics with scrapedAt + metrics
+  * update posts.lastMetricsJson and posts.lastScrapedAt
+
+Scheduling options (pick what works in Replit):
+
+* Preferred: node-cron in the backend (every 10 minutes)
+* Add a manual “Scrape All” button that triggers the same job immediately.
+
+IMPORTANT: Rate limiting
+
+* Add concurrency control (e.g. max 3-5 concurrent scrapes)
+* Add retry (1-2 retries) and skip failures without breaking the job
+
+METRICS COMPUTATION (SINGLE SOURCE OF TRUTH)
+A) KPI totals
+
+* Query latest snapshot per post (posts.lastMetricsJson) for all active posts in campaign
+* Sum views/likes/comments/shares
+* This is the only source for KPI cards.
+
+B) Engagement Trends chart
+
+* Build an “as-of” time series from post_metrics:
+  For each day (or hour) in range:
+
+  * For each post, pick the latest post_metrics row with scrapedAt <= that timestamp
+  * Sum across posts for views/likes/comments/shares
+* Ensure the last timestamp’s totals match KPI totals (because KPI totals come from latest snapshots and the last as-of point should match the latest recorded metrics).
+
+API CHANGES (OR FRONTEND SELECTOR CHANGES)
+Create/update endpoints:
+
+* GET /api/campaign/:id/metrics
+  returns:
+
+  * totals { views, likes, comments, shares }
+  * timeSeries [{ t, views, likes, comments, shares }]
+  * trackedPostsCount
+* GET /api/campaign/:id/posts
+  returns deduped posts list with lastMetricsJson
+
+UI CHANGES (DO NOT REDESIGN)
+
+* Show a small “Live tracking” indicator near the Scrape All button:
+
+  * “Last updated: X mins ago”
+  * “Auto-refresh every 10 mins”
+* Add a toggle for chart resolution (optional):
+
+  * 24hrs = hourly points
+  * 7/30/60/90 days = daily points
+
+VALIDATION (MUST ADD)
+
+* Unit test: canonicalization removes igsh and trailing slash and dedupes correctly
+* Unit test: pending posts excluded
+* Sanity check: chart last point equals KPI totals for each metric
+
+DELIVERABLE
+Commit code so live tracking works reliably, saves history, and all numbers always align across KPI + chart + table.
