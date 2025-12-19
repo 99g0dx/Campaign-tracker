@@ -36,7 +36,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   getUserByResetToken(token: string): Promise<User | undefined>;
-  createUser(userData: { email: string; passwordHash: string; fullName?: string; phone?: string; verificationCode?: string; verificationExpiresAt?: Date }): Promise<User>;
+  createUser(userData: { email: string; passwordHash: string; fullName?: string; phone?: string; verificationCode?: string; verificationExpiresAt?: Date; isVerified?: boolean }): Promise<User>;
   upsertUser(user: UpsertUser): Promise<User>;
   updateUserProfile(id: string, data: { fullName?: string; firstName?: string; lastName?: string; phone?: string; email?: string; verificationCode?: string | null; verificationExpiresAt?: Date | null; isVerified?: boolean }): Promise<User | undefined>;
   updateUserPassword(id: string, passwordHash: string): Promise<User | undefined>;
@@ -113,7 +113,7 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createUser(userData: { email: string; passwordHash: string; fullName?: string; phone?: string; verificationCode?: string; verificationExpiresAt?: Date }): Promise<User> {
+  async createUser(userData: { email: string; passwordHash: string; fullName?: string; phone?: string; verificationCode?: string; verificationExpiresAt?: Date; isVerified?: boolean }): Promise<User> {
     const [user] = await db.insert(users).values({
       email: userData.email.toLowerCase(),
       passwordHash: userData.passwordHash,
@@ -121,7 +121,7 @@ export class DatabaseStorage implements IStorage {
       phone: userData.phone || null,
       verificationCode: userData.verificationCode || null,
       verificationExpiresAt: userData.verificationExpiresAt || null,
-      isVerified: false,
+      isVerified: userData.isVerified ?? false,
     }).returning();
     return user;
   }

@@ -1,10 +1,9 @@
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { 
-  Music, 
-  BarChart3, 
-  Users, 
+import {
+  BarChart3,
+  Users,
   TrendingUp,
   Zap,
   Shield,
@@ -15,10 +14,13 @@ export default function Landing() {
     <div className="min-h-screen bg-background">
       <header className="border-b">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Music className="h-6 w-6 text-primary" />
-            <span className="text-xl font-bold">Campaign Tracker</span>
-          </div>
+          <Link href="/">
+            <img
+              src="/dt-logo-white.png"
+              alt="DobbleTap"
+              className="h-7 md:h-9 object-contain cursor-pointer"
+            />
+          </Link>
           <div className="flex items-center gap-3">
             <Link href="/login">
               <Button variant="ghost" data-testid="button-login">
@@ -127,7 +129,6 @@ export default function Landing() {
                 </ul>
               </div>
               <div className="bg-muted/30 rounded-lg p-8 text-center">
-                <Music className="h-16 w-16 text-primary mx-auto mb-4" />
                 <h3 className="text-xl font-semibold mb-2">Ready to Launch?</h3>
                 <p className="text-muted-foreground mb-6">
                   Start tracking your song marketing campaigns today.

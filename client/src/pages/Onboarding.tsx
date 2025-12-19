@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Music, Loader2, ArrowRight, Mail } from "lucide-react";
+import { Loader2, ArrowRight, Mail } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 export default function Onboarding() {
@@ -98,10 +98,12 @@ export default function Onboarding() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="flex justify-center mb-4">
-            <div className="rounded-full bg-primary/10 p-3">
-              <Music className="h-8 w-8 text-primary" />
-            </div>
+          <div className="mx-auto mb-4">
+            <img
+              src="/dt-logo-white.png"
+              alt="DobbleTap"
+              className="h-8 md:h-10 object-contain mx-auto"
+            />
           </div>
           <CardTitle className="text-2xl">
             {step === "form" ? "Complete Your Profile" : "Verify Your Email"}

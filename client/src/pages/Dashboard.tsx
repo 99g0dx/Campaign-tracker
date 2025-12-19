@@ -52,6 +52,7 @@ import {
   LogOut,
   MoreVertical,
   Trash2,
+  Copy,
 } from "lucide-react";
 import { Link } from "wouter";
 import {
@@ -60,6 +61,7 @@ import {
   useSocialLinks,
   useAddSocialLink,
   useDeleteCampaign,
+  useDuplicateCampaign,
   type Campaign,
   type SocialLink,
   type PostStatus,
@@ -105,11 +107,13 @@ function CampaignCard({
   socialLinks,
   onAddLink,
   onDelete,
+  onDuplicate,
 }: {
   campaign: Campaign;
   socialLinks: SocialLink[];
   onAddLink: (campaignId: number) => void;
   onDelete: (campaign: Campaign) => void;
+  onDuplicate: (campaign: Campaign) => void;
 }) {
   const campaignLinks = socialLinks.filter((l) => l.campaignId === campaign.id);
   const displayedLinks = campaignLinks.slice(0, 3);
@@ -151,6 +155,13 @@ function CampaignCard({
                 <Link href={`/campaign/${campaign.id}`} className="cursor-pointer">
                   View Details
                 </Link>
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onDuplicate(campaign)}
+                data-testid={`button-duplicate-campaign-${campaign.id}`}
+              >
+                <Copy className="h-4 w-4 mr-2" />
+                Duplicate Campaign
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
@@ -414,10 +425,27 @@ export default function Dashboard() {
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
   const { mutateAsync: addCampaign } = useAddCampaign();
   const deleteCampaignMutation = useDeleteCampaign();
+  const duplicateCampaignMutation = useDuplicateCampaign();
 
   const handleDeleteCampaign = (campaign: Campaign) => {
     setCampaignToDelete(campaign);
     setDeleteModalOpen(true);
+  };
+
+  const handleDuplicateCampaign = async (campaign: Campaign) => {
+    try {
+      const result = await duplicateCampaignMutation.mutateAsync({ id: campaign.id });
+      toast({
+        title: "Campaign duplicated",
+        description: `Created "${result.name}" with ${result.copiedCreatorsCount} creator${result.copiedCreatorsCount !== 1 ? 's' : ''}`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to duplicate campaign. Please try again.",
+        variant: "destructive",
+      });
+    }
   };
 
   const confirmDeleteCampaign = async () => {
@@ -474,9 +502,16 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background">
       <div className="container mx-auto max-w-6xl p-4 md:p-6 space-y-6">
         <header className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h1 className="text-2xl font-bold">Campaign Tracker</h1>
-            <p className="text-muted-foreground">Track your song campaigns and social engagement</p>
+          <div className="flex items-center gap-4">
+            <img
+              src="/dt-logo-white.png"
+              alt="DobbleTap"
+              className="h-8 md:h-9 object-contain"
+            />
+            <div>
+              <h1 className="text-2xl font-bold">Campaign Tracker</h1>
+              <p className="text-muted-foreground">Track your song campaigns and social engagement</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <Button onClick={() => setCampaignModalOpen(true)} data-testid="button-new-campaign">
@@ -501,7 +536,7 @@ export default function Dashboard() {
                     Profile
                   </DropdownMenuItem>
                 </Link>
-                <DropdownMenuItem onClick={logout} data-testid="button-logout" className="cursor-pointer">
+                <DropdownMenuItem onClick={() => logout()} data-testid="button-logout" className="cursor-pointer">
                   <LogOut className="h-4 w-4 mr-2" />
                   Log out
                 </DropdownMenuItem>
@@ -656,6 +691,7 @@ export default function Dashboard() {
                   socialLinks={socialLinks || []}
                   onAddLink={handleAddLink}
                   onDelete={handleDeleteCampaign}
+                  onDuplicate={handleDuplicateCampaign}
                 />
               ))}
             </div>

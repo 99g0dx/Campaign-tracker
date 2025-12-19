@@ -276,6 +276,19 @@ export function useDeleteCampaign() {
   });
 }
 
+export function useDuplicateCampaign() {
+  return useMutation({
+    mutationFn: async (data: { id: number; name?: string }) => {
+      const response = await apiRequest("POST", `/api/campaigns/${data.id}/duplicate`, { name: data.name });
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+    },
+  });
+}
+
 export interface EngagementHistoryPoint {
   date: string;
   views: number;

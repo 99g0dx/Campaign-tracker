@@ -1,6 +1,8 @@
-import { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { useParams } from "wouter";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { isPlaceholderPost, isScrapedPost, dedupePosts, filterPostsByWindow, computeTotals, canonicalStatus } from "@/lib/postUtils";
+import { getComparator } from "@/lib/sortUtils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -21,6 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   Lock,
   Eye,
@@ -48,14 +51,17 @@ import {
 type SocialLink = {
   id: number;
   url: string;
-  platform: string;
+  platform: string | null;
   creatorName: string | null;
-  postStatus: string;
+  postStatus: string | null;
   views: number;
   likes: number;
   comments: number;
   shares: number;
-  status: string;
+  status?: string | null;
+  lastScrapedAt?: string | null;
+  scrapedAt?: string | null;
+  isScraped?: boolean | null;
 };
 
 type EngagementData = {
@@ -146,9 +152,24 @@ export default function SharedCampaign() {
     comments: true,
     shares: true,
   });
+
+  // Dev convenience: allow overriding initial sort/window via URL params (e.g. ?sort=platform&window=24h)
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const s = params.get("sort");
+      const w = params.get("window");
+      if (s) setSortBy(s);
+      if (w) setSelectedTimeWindow(w);
+    } catch (err) {
+      // ignore in SSR or invalid URLs
+    }
+  }, []);
   const [searchQuery, setSearchQuery] = useState("");
   const [platformFilter, setPlatformFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  // Status multi-select filter (defaults to All)
+  const ALL_STATUSES = ["Pending", "Briefed", "Active", "Done"] as const;
+  const [statusFilters, setStatusFilters] = useState<Set<string>>(new Set(ALL_STATUSES));
   const [sortBy, setSortBy] = useState<string>("views");
 
   const toggleMetric = (metric: keyof typeof visibleMetrics) => {
@@ -209,46 +230,110 @@ export default function SharedCampaign() {
     }
   }
 
-  const filteredAndSortedLinks = useMemo(() => {
-    if (!data?.socialLinks) return [];
-    
-    let filtered = data.socialLinks.filter((link) => {
+  // Use the single canonical filteredPosts array across table, totals and charts
+  const {
+    filteredPosts,
+    chartPosts,
+    counts,
+    campaignTotals,
+    windowTotals,
+    engagementHistoryLocal,
+  } = useMemo(() => {
+    if (!data?.socialLinks) {
+      return {
+        filteredPosts: [],
+        chartPosts: [],
+        counts: { totalPosts: 0, excludedPlaceholders: 0, excludedNotScraped: 0 },
+        campaignTotals: { totalViews: 0, totalLikes: 0, totalComments: 0, totalShares: 0, totalEngagement: 0 },
+        windowTotals: { totalViews: 0, totalLikes: 0, totalComments: 0, totalShares: 0, totalEngagement: 0 },
+        engagementHistoryLocal: [],
+      };
+    }
+
+    // 1) dedupe
+    const deduped = dedupePosts(data.socialLinks as any);
+
+    const totalPosts = deduped.length;
+    const excludedPlaceholders = deduped.filter(isPlaceholderPost).length;
+    const excludedNotScraped = deduped.filter((p: any) => !isPlaceholderPost(p) && !isScrapedPost(p)).length;
+
+    // base included posts (campaign-level totals)
+    const includedBase = deduped.filter((p: any) => !isPlaceholderPost(p) && isScrapedPost(p));
+
+    // window-limited posts (for chart and window calculations)
+    const windowLimited = filterPostsByWindow(includedBase, selectedTimeWindow);
+
+    // filtered posts for the table and selected window totals (apply search/platform/status)
+    const filtered = windowLimited.filter((link: any) => {
       const matchesSearch = !searchQuery || 
         (link.creatorName?.toLowerCase().includes(searchQuery.toLowerCase())) ||
-        link.url.toLowerCase().includes(searchQuery.toLowerCase());
-      
+        (link.url || "").toLowerCase().includes(searchQuery.toLowerCase());
+
       const matchesPlatform = platformFilter === "all" || 
-        link.platform.toLowerCase() === platformFilter.toLowerCase();
-      
-      const matchesStatus = statusFilter === "all" || 
-        link.postStatus.toLowerCase() === statusFilter.toLowerCase();
-      
+        (link.platform ?? "").toLowerCase() === platformFilter.toLowerCase();
+
+const matchesStatus = statusFilters.has(canonicalStatus(link.postStatus));
+
       return matchesSearch && matchesPlatform && matchesStatus;
     });
 
-    filtered.sort((a, b) => {
-      switch (sortBy) {
-        case "views":
-          return (b.views || 0) - (a.views || 0);
-        case "likes":
-          return (b.likes || 0) - (a.likes || 0);
-        case "comments":
-          return (b.comments || 0) - (a.comments || 0);
-        case "shares":
-          return (b.shares || 0) - (a.shares || 0);
-        case "creator":
-          return (a.creatorName || "").localeCompare(b.creatorName || "");
-        default:
-          return 0;
-      }
-    });
+    // sort using shared comparator
+    filtered.sort(getComparator(sortBy as any));
 
-    return filtered;
-  }, [data?.socialLinks, searchQuery, platformFilter, statusFilter, sortBy]);
+    const campaignTotals = computeTotals(includedBase);
+    const windowTotals = computeTotals(filtered);
+
+    // build daily series for the selected window; this is based on the windowLimited set (not further filtered by search/platform)
+    const metrics = ["views", "likes", "comments", "shares"];
+    // create a map date->object
+    const dayMap = new Map<string, any>();
+    const daysArr = (() => {
+      const hours = { "24h":24, "72h":72, "7d":24*7, "30d":24*30, "60d":24*60, "90d":24*90 }[selectedTimeWindow] ?? 24;
+      const dayCount = Math.ceil(hours / 24);
+      const arr: number[] = [];
+      const now = Date.now();
+      for (let i = dayCount - 1; i >= 0; i--) {
+        const d = new Date(now - i * 24 * 60 * 60 * 1000);
+        const dayStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString();
+        arr.push(Date.parse(dayStart));
+        dayMap.set(dayStart, { date: dayStart, views: 0, likes: 0, comments: 0, shares: 0, totalEngagement: 0 });
+      }
+      return arr;
+    })();
+
+    for (const p of windowLimited) {
+      const dstr = (p.lastScrapedAt ?? p.scrapedAt);
+      if (!dstr) continue;
+      const ts = Date.parse(dstr);
+      if (isNaN(ts)) continue;
+      // find midnight UTC for that date
+      const d = new Date(ts);
+      const dayStart = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate())).toISOString();
+      if (!dayMap.has(dayStart)) continue;
+      const entry = dayMap.get(dayStart);
+      entry.views += p.views || 0;
+      entry.likes += p.likes || 0;
+      entry.comments += p.comments || 0;
+      entry.shares += p.shares || 0;
+      entry.totalEngagement = entry.likes + entry.comments + entry.shares;
+      dayMap.set(dayStart, entry);
+    }
+
+    const engagementHistoryLocal = Array.from(dayMap.values());
+
+    return {
+      filteredPosts: filtered,
+      chartPosts: windowLimited,
+      counts: { totalPosts, excludedPlaceholders, excludedNotScraped },
+      campaignTotals,
+      windowTotals,
+      engagementHistoryLocal,
+    };
+  }, [data?.socialLinks, searchQuery, platformFilter, statusFilters, sortBy, selectedTimeWindow]);
 
   const uniquePlatforms = useMemo(() => {
     if (!data?.socialLinks) return [];
-    return [...new Set(data.socialLinks.map(l => l.platform))];
+    return Array.from(new Set(data.socialLinks.map(l => l.platform)));
   }, [data?.socialLinks]);
 
   if (loading) {
@@ -311,10 +396,10 @@ export default function SharedCampaign() {
 
   const { campaign, socialLinks, engagementHistory, engagementWindows } = data;
 
-  const totalViews = socialLinks.reduce((sum, l) => sum + (l.views || 0), 0);
-  const totalLikes = socialLinks.reduce((sum, l) => sum + (l.likes || 0), 0);
-  const totalComments = socialLinks.reduce((sum, l) => sum + (l.comments || 0), 0);
-  const totalShares = socialLinks.reduce((sum, l) => sum + (l.shares || 0), 0);
+  // Use campaignTotals (computed from deduped, non-placeholder, scraped posts)
+  // campaign totals and window totals are computed in the memo above and accessed directly (campaignTotals, windowTotals)
+
+
 
   const timeWindowKeys = ["24h", "72h", "7d", "30d", "60d", "90d"];
   const selectedWindowData = engagementWindows?.[selectedTimeWindow];
@@ -360,7 +445,7 @@ export default function SharedCampaign() {
                   <Eye className="h-5 w-5 text-blue-600 dark:text-blue-400" />
                 </div>
                 <p className="text-2xl md:text-3xl font-bold tabular-nums" data-testid="text-total-views">
-                  {formatNumber(totalViews)}
+                  {formatNumber(campaignTotals.totalViews)}
                 </p>
                 <p className="text-xs md:text-sm text-muted-foreground font-medium">Total Views</p>
               </div>
@@ -373,7 +458,7 @@ export default function SharedCampaign() {
                   <Heart className="h-5 w-5 text-red-600 dark:text-red-400" />
                 </div>
                 <p className="text-2xl md:text-3xl font-bold tabular-nums" data-testid="text-total-likes">
-                  {formatNumber(totalLikes)}
+                  {formatNumber(campaignTotals.totalLikes)}
                 </p>
                 <p className="text-xs md:text-sm text-muted-foreground font-medium">Total Likes</p>
               </div>
@@ -386,7 +471,7 @@ export default function SharedCampaign() {
                   <MessageCircle className="h-5 w-5 text-green-600 dark:text-green-400" />
                 </div>
                 <p className="text-2xl md:text-3xl font-bold tabular-nums" data-testid="text-total-comments">
-                  {formatNumber(totalComments)}
+                  {formatNumber(campaignTotals.totalComments)}
                 </p>
                 <p className="text-xs md:text-sm text-muted-foreground font-medium">Comments</p>
               </div>
@@ -399,7 +484,7 @@ export default function SharedCampaign() {
                   <Share2 className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                 </div>
                 <p className="text-2xl md:text-3xl font-bold tabular-nums" data-testid="text-total-shares">
-                  {formatNumber(totalShares)}
+                  {formatNumber(campaignTotals.totalShares)}
                 </p>
                 <p className="text-xs md:text-sm text-muted-foreground font-medium">Shares</p>
               </div>
@@ -407,7 +492,7 @@ export default function SharedCampaign() {
           </Card>
         </div>
 
-        {engagementWindows && (
+        {data && (
           <Card>
             <CardHeader className="pb-4">
               <CardTitle className="text-lg">Engagement Breakdown by Time Period</CardTitle>
@@ -423,54 +508,75 @@ export default function SharedCampaign() {
                     onClick={() => setSelectedTimeWindow(key)}
                     data-testid={`button-time-window-${key}`}
                   >
-                    {engagementWindows[key]?.label || key}
+                    {engagementWindows?.[key]?.label || key}
                   </Button>
                 ))}
               </div>
               
-              {selectedWindowData && (
+              {true && (
                 <div className="space-y-3">
                   <p className="text-sm text-muted-foreground font-medium">
-                    Selected window totals ({selectedWindowData.label})
+                    Selected window totals ({engagementWindows?.[selectedTimeWindow]?.label || selectedTimeWindow})
                   </p>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
                     <div className="p-4 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900">
                       <div className="flex items-center gap-2 mb-1">
                         <Eye className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                         <span className="text-sm font-medium text-blue-700 dark:text-blue-300">Views</span>
                       </div>
                       <p className="text-xl font-bold tabular-nums" data-testid="text-window-views">
-                        {formatNumber(selectedWindowData.views)}
+                        {formatNumber(windowTotals.totalViews)}
                       </p>
                     </div>
+
+                    <div className="p-4 rounded-lg bg-yellow-50 dark:bg-yellow-950/30 border border-yellow-100 dark:border-yellow-900">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Total Engagement</span>
+                      </div>
+                      <p className="text-xl font-bold tabular-nums" data-testid="text-window-engagement">
+                        {formatNumber(windowTotals.totalEngagement)}
+                      </p>
+                    </div>
+
                     <div className="p-4 rounded-lg bg-red-50 dark:bg-red-950/30 border border-red-100 dark:border-red-900">
                       <div className="flex items-center gap-2 mb-1">
                         <Heart className="h-4 w-4 text-red-600 dark:text-red-400" />
                         <span className="text-sm font-medium text-red-700 dark:text-red-300">Likes</span>
                       </div>
                       <p className="text-xl font-bold tabular-nums" data-testid="text-window-likes">
-                        {formatNumber(selectedWindowData.likes)}
+                        {formatNumber(windowTotals.totalLikes)}
                       </p>
                     </div>
+
                     <div className="p-4 rounded-lg bg-green-50 dark:bg-green-950/30 border border-green-100 dark:border-green-900">
                       <div className="flex items-center gap-2 mb-1">
                         <MessageCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
                         <span className="text-sm font-medium text-green-700 dark:text-green-300">Comments</span>
                       </div>
                       <p className="text-xl font-bold tabular-nums" data-testid="text-window-comments">
-                        {formatNumber(selectedWindowData.comments)}
+                        {formatNumber(windowTotals.totalComments)}
                       </p>
                     </div>
+
                     <div className="p-4 rounded-lg bg-purple-50 dark:bg-purple-950/30 border border-purple-100 dark:border-purple-900">
                       <div className="flex items-center gap-2 mb-1">
                         <Share2 className="h-4 w-4 text-purple-600 dark:text-purple-400" />
                         <span className="text-sm font-medium text-purple-700 dark:text-purple-300">Shares</span>
                       </div>
                       <p className="text-xl font-bold tabular-nums" data-testid="text-window-shares">
-                        {formatNumber(selectedWindowData.shares)}
+                        {formatNumber(windowTotals.totalShares)}
                       </p>
                     </div>
                   </div>
+
+                  {import.meta.env.DEV && (
+                    <div className="text-xs text-muted-foreground mt-2">
+                      <div>Posts counted: <strong>{filteredPosts.length}</strong> / Total posts: <strong>{counts.totalPosts}</strong></div>
+                      <div>Excluded placeholders: <strong>{counts.excludedPlaceholders}</strong></div>
+                      <div>Excluded not-scraped: <strong>{counts.excludedNotScraped}</strong></div>
+                    </div>
+                  )}
+
                 </div>
               )}
             </CardContent>
@@ -534,7 +640,7 @@ export default function SharedCampaign() {
             <CardContent>
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={engagementHistory}>
+                  <LineChart data={engagementHistoryLocal}>
                     <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
                     <XAxis
                       dataKey="date"
@@ -612,7 +718,7 @@ export default function SharedCampaign() {
           <CardHeader className="pb-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
               <div>
-                <CardTitle className="text-lg">Posts ({socialLinks.length})</CardTitle>
+                <CardTitle className="text-lg">Posts ({filteredPosts.length})</CardTitle>
                 <CardDescription>All creators and their posts in this campaign</CardDescription>
               </div>
             </div>
@@ -637,24 +743,45 @@ export default function SharedCampaign() {
                   <SelectContent>
                     <SelectItem value="all">All Platforms</SelectItem>
                     {uniquePlatforms.map((platform) => (
-                      <SelectItem key={platform} value={platform}>
-                        {platform}
+                      <SelectItem key={platform} value={platform || 'unknown'}>
+                        {platform || 'Unknown'}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[120px]" data-testid="select-status-filter">
-                    <SelectValue placeholder="Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Status</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                    <SelectItem value="briefed">Briefed</SelectItem>
-                    <SelectItem value="active">Active</SelectItem>
-                    <SelectItem value="done">Done</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-[140px]" data-testid="button-status-filter">
+                      {(() => {
+                        if (statusFilters.size === ALL_STATUSES.length || statusFilters.size === 0) return "Status: All";
+                        if (statusFilters.size === 1) return `Status: ${Array.from(statusFilters)[0]}`;
+                        return `Status: ${statusFilters.size} selected`;
+                      })()}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-48">
+                    <div className="flex justify-between">
+                      <Button variant="ghost" size="sm" onClick={() => setStatusFilters(new Set(ALL_STATUSES))}>All</Button>
+                      <Button variant="ghost" size="sm" onClick={() => setStatusFilters(new Set(ALL_STATUSES))}>Clear</Button>
+                    </div>
+                    <div className="mt-2 space-y-2">
+                      {ALL_STATUSES.map((s) => (
+                        <label key={s} className="flex items-center gap-2">
+                          <Checkbox checked={statusFilters.has(s)} onCheckedChange={() => {
+                            setStatusFilters(prev => {
+                              const next = new Set(prev);
+                              if (next.has(s)) next.delete(s);
+                              else next.add(s);
+                              if (next.size === 0) return new Set(ALL_STATUSES);
+                              return next;
+                            });
+                          }} />
+                          <span>{s}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
                 <Select value={sortBy} onValueChange={setSortBy}>
                   <SelectTrigger className="w-[140px]" data-testid="select-sort-by">
                     <ArrowUpDown className="h-4 w-4 mr-1" />
@@ -665,13 +792,15 @@ export default function SharedCampaign() {
                     <SelectItem value="likes">Likes (High)</SelectItem>
                     <SelectItem value="comments">Comments (High)</SelectItem>
                     <SelectItem value="shares">Shares (High)</SelectItem>
+                    <SelectItem value="platform">Platform (A-Z)</SelectItem>
+                    <SelectItem value="status">Status (A-Z)</SelectItem>
                     <SelectItem value="creator">Creator (A-Z)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
             </div>
 
-            {filteredAndSortedLinks.length === 0 ? (
+            {filteredPosts.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 {socialLinks.length === 0 
                   ? "No posts in this campaign yet."
@@ -694,19 +823,19 @@ export default function SharedCampaign() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredAndSortedLinks.map((link) => (
+                      {filteredPosts.map((link) => (
                         <TableRow 
                           key={link.id} 
                           className="hover-elevate"
                           data-testid={`shared-link-${link.id}`}
                         >
                           <TableCell>
-                            <Badge className={`${getPlatformColor(link.platform)} no-default-hover-elevate no-default-active-elevate`}>
-                              {link.platform}
+                            <Badge className={`${getPlatformColor(link.platform || 'unknown')} no-default-hover-elevate no-default-active-elevate`}>
+                              {link.platform || 'Unknown'}
                             </Badge>
                           </TableCell>
                           <TableCell>
-                            {getStatusBadge(link.postStatus)}
+                            {getStatusBadge(link.postStatus || 'pending')}
                           </TableCell>
                           <TableCell className="font-medium">
                             {link.creatorName || <span className="text-muted-foreground">—</span>}
@@ -732,7 +861,7 @@ export default function SharedCampaign() {
                             {formatNumber(link.comments)}
                           </TableCell>
                           <TableCell className="text-right font-medium tabular-nums">
-                            {link.shares > 0 ? formatNumber(link.shares) : "—"}
+                            {(link.shares ?? 0) > 0 ? formatNumber(link.shares ?? 0) : "—"}
                           </TableCell>
                         </TableRow>
                       ))}
@@ -741,15 +870,15 @@ export default function SharedCampaign() {
                 </div>
 
                 <div className="md:hidden space-y-3">
-                  {filteredAndSortedLinks.map((link) => (
+                  {filteredPosts.map((link) => (
                     <Card key={link.id} className="hover-elevate" data-testid={`shared-link-mobile-${link.id}`}>
                       <CardContent className="p-4 space-y-3">
                         <div className="flex items-center justify-between gap-2 flex-wrap">
                           <div className="flex items-center gap-2">
-                            <Badge className={`${getPlatformColor(link.platform)} no-default-hover-elevate no-default-active-elevate`}>
-                              {link.platform}
+                            <Badge className={`${getPlatformColor(link.platform || 'unknown')} no-default-hover-elevate no-default-active-elevate`}>
+                              {link.platform || 'Unknown'}
                             </Badge>
-                            {getStatusBadge(link.postStatus)}
+                            {getStatusBadge(link.postStatus || 'pending')}
                           </div>
                         </div>
                         
@@ -788,7 +917,7 @@ export default function SharedCampaign() {
                           </div>
                           <div className="text-center">
                             <p className="text-xs text-muted-foreground">Shares</p>
-                            <p className="font-bold tabular-nums">{link.shares > 0 ? formatNumber(link.shares) : "—"}</p>
+                            <p className="font-bold tabular-nums">{(link.shares ?? 0) > 0 ? formatNumber(link.shares ?? 0) : "—"}</p>
                           </div>
                         </div>
                       </CardContent>

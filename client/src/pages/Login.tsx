@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
-import { Music, Loader2, AlertCircle } from "lucide-react";
+import { Loader2, AlertCircle } from "lucide-react";
 
 export default function Login() {
   const [, setLocation] = useLocation();
@@ -45,8 +45,12 @@ export default function Login() {
     <div className="min-h-screen bg-background flex items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader className="text-center">
-          <div className="mx-auto w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center mb-2">
-            <Music className="h-6 w-6 text-primary" />
+          <div className="mx-auto mb-4">
+            <img
+              src="/dt-logo-white.png"
+              alt="DobbleTap"
+              className="h-8 md:h-10 object-contain mx-auto"
+            />
           </div>
           <CardTitle className="text-2xl">Welcome back</CardTitle>
           <CardDescription>

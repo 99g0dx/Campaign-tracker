@@ -4,6 +4,25 @@ import connectPg from "connect-pg-simple";
 
 export function setupSession(app: Express) {
   const sessionTtl = 7 * 24 * 60 * 60 * 1000;
+
+  // If DATABASE_URL is not set, fall back to in-memory session store for local dev
+  if (!process.env.DATABASE_URL && process.env.NODE_ENV !== "production") {
+    app.set("trust proxy", 1);
+    app.use(
+      session({
+        secret: process.env.SESSION_SECRET || "dev-secret",
+        resave: false,
+        saveUninitialized: false,
+        cookie: {
+          httpOnly: true,
+          secure: false,
+          maxAge: sessionTtl,
+        },
+      })
+    );
+    return;
+  }
+
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,

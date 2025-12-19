@@ -61,8 +61,11 @@ router.post("/signup", async (req, res) => {
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
-    const verificationCode = generateVerificationCode();
-    const verificationExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+
+    // For local development, auto-verify users (no email server configured)
+    const isLocalDev = process.env.NODE_ENV === 'development';
+    const verificationCode = isLocalDev ? undefined : generateVerificationCode();
+    const verificationExpiresAt = isLocalDev ? undefined : new Date(Date.now() + 15 * 60 * 1000);
 
     const user = await storage.createUser({
       email: normalizedEmail,
@@ -71,14 +74,17 @@ router.post("/signup", async (req, res) => {
       phone,
       verificationCode,
       verificationExpiresAt,
+      isVerified: isLocalDev, // Auto-verify in development
     });
 
-    // Send verification email
-    try {
-      await sendVerificationEmail(normalizedEmail, verificationCode);
-    } catch (emailError) {
-      console.error("Failed to send verification email:", emailError);
-      // Continue with signup even if email fails - user can resend later
+    // Send verification email (only in production)
+    if (!isLocalDev && verificationCode) {
+      try {
+        await sendVerificationEmail(normalizedEmail, verificationCode);
+      } catch (emailError) {
+        console.error("Failed to send verification email:", emailError);
+        // Continue with signup even if email fails - user can resend later
+      }
     }
 
     req.session.regenerate((err) => {
@@ -246,6 +252,9 @@ router.post("/resend-code", async (req, res) => {
 
     // Send verification email
     try {
+      if (!user.email) {
+        return res.status(400).json({ error: "User email not found" });
+      }
       await sendVerificationEmail(user.email, verificationCode);
     } catch (emailError) {
       console.error("Failed to send verification email:", emailError);
@@ -278,10 +287,12 @@ router.post("/forgot-password", async (req, res) => {
       const host = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0] || "localhost:5000";
       const protocol = host.includes("localhost") ? "http" : "https";
       const resetUrl = `${protocol}://${host}/reset-password?token=${resetToken}`;
-      
+
       // Send password reset email
       try {
-        await sendPasswordResetEmail(user.email, resetUrl);
+        if (user.email) {
+          await sendPasswordResetEmail(user.email, resetUrl);
+        }
       } catch (emailError) {
         console.error("Failed to send password reset email:", emailError);
         // Don't reveal whether the email exists for security

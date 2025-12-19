@@ -1,22 +1,22 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, integer, real, timestamp, serial, boolean } from "drizzle-orm/pg-core";
+import { sqliteTable, text, integer, real, blob } from "drizzle-orm/sqlite-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // Campaigns table - simplified to track song campaigns
-export const campaigns = pgTable("campaigns", {
-  id: serial("id").primaryKey(),
-  ownerId: varchar("owner_id").notNull(),  // user who owns this campaign
+export const campaigns = sqliteTable("campaigns", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),  // user who owns this campaign
   name: text("name").notNull(),
   songTitle: text("song_title").notNull(),
   songArtist: text("song_artist"),
   status: text("status").notNull().default("Active"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(sql`(unixepoch())`),
   // Sharing fields
   shareSlug: text("share_slug"),
   sharePasswordHash: text("share_password_hash"),
-  shareEnabled: boolean("share_enabled").default(false).notNull(),
-  shareCreatedAt: timestamp("share_created_at"),
+  shareEnabled: integer("share_enabled", { mode: "boolean" }).default(false).notNull(),
+  shareCreatedAt: integer("share_created_at", { mode: "timestamp" }),
 });
 
 export const insertCampaignSchema = createInsertSchema(campaigns).omit({
@@ -36,8 +36,8 @@ export const postStatusOptions = ["pending", "briefed", "active", "done"] as con
 export type PostStatus = typeof postStatusOptions[number];
 
 // Social links table for tracking social media posts
-export const socialLinks = pgTable("social_links", {
-  id: serial("id").primaryKey(),
+export const socialLinks = sqliteTable("social_links", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   campaignId: integer("campaign_id").references(() => campaigns.id).notNull(),
   url: text("url").notNull(),
   canonicalUrl: text("canonical_url"),  // Normalized URL for deduplication
@@ -51,10 +51,10 @@ export const socialLinks = pgTable("social_links", {
   comments: integer("comments").default(0),
   shares: integer("shares").default(0),
   engagementRate: real("engagement_rate").default(0),
-  lastScrapedAt: timestamp("last_scraped_at"),
+  lastScrapedAt: integer("last_scraped_at", { mode: "timestamp" }),
   status: text("status").notNull().default("pending"),
   errorMessage: text("error_message"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(sql`(unixepoch())`),
 });
 
 export const insertSocialLinkSchema = createInsertSchema(socialLinks).omit({
@@ -98,15 +98,15 @@ export type CampaignMetrics = {
 };
 
 // Engagement history for tracking metrics over time
-export const engagementHistory = pgTable("engagement_history", {
-  id: serial("id").primaryKey(),
+export const engagementHistory = sqliteTable("engagement_history", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   socialLinkId: integer("social_link_id").references(() => socialLinks.id).notNull(),
   views: integer("views").default(0),
   likes: integer("likes").default(0),
   comments: integer("comments").default(0),
   shares: integer("shares").default(0),
   totalEngagement: integer("total_engagement").default(0),
-  recordedAt: timestamp("recorded_at").notNull().defaultNow(),
+  recordedAt: integer("recorded_at", { mode: "timestamp" }).notNull().default(sql`(unixepoch())`),
 });
 
 export const insertEngagementHistorySchema = createInsertSchema(engagementHistory).omit({
@@ -118,46 +118,46 @@ export type InsertEngagementHistory = z.infer<typeof insertEngagementHistorySche
 export type EngagementHistory = typeof engagementHistory.$inferSelect;
 
 // Session storage table for Replit Auth
-export const sessions = pgTable(
+export const sessions = sqliteTable(
   "sessions",
   {
-    sid: varchar("sid").primaryKey(),
+    sid: text("sid").primaryKey(),
     sess: text("sess").notNull(),
-    expire: timestamp("expire").notNull(),
+    expire: integer("expire", { mode: "timestamp" }).notNull(),
   }
 );
 
 // User storage table for local email/password authentication
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: varchar("email").unique(),
-  fullName: varchar("full_name"),
-  firstName: varchar("first_name"),
-  lastName: varchar("last_name"),
-  phone: varchar("phone"),
-  profileImageUrl: varchar("profile_image_url"),
-  isVerified: boolean("is_verified").default(false).notNull(),
-  verificationCode: varchar("verification_code"),
-  verificationExpiresAt: timestamp("verification_expires_at"),
+export const users = sqliteTable("users", {
+  id: text("id").primaryKey().default(sql`(lower(hex(randomblob(16))))`),
+  email: text("email").unique(),
+  fullName: text("full_name"),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  phone: text("phone"),
+  profileImageUrl: text("profile_image_url"),
+  isVerified: integer("is_verified", { mode: "boolean" }).default(false).notNull(),
+  verificationCode: text("verification_code"),
+  verificationExpiresAt: integer("verification_expires_at", { mode: "timestamp" }),
   // Password authentication
   passwordHash: text("password_hash"),
   resetToken: text("reset_token"),
-  resetTokenExpiresAt: timestamp("reset_token_expires_at"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  resetTokenExpiresAt: integer("reset_token_expires_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
 });
 
 export type UpsertUser = typeof users.$inferInsert;
 export type User = typeof users.$inferSelect;
 
 // Team members table for profile management
-export const teamMembers = pgTable("team_members", {
-  id: serial("id").primaryKey(),
-  ownerId: varchar("owner_id").notNull(),  // user who owns this team member
+export const teamMembers = sqliteTable("team_members", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),  // user who owns this team member
   name: text("name").notNull(),
   email: text("email").notNull(),
   role: text("role"),                      // e.g. "Analyst", "Manager"
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
 });
 
 export const insertTeamMemberSchema = createInsertSchema(teamMembers).omit({
@@ -169,14 +169,14 @@ export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
 export type TeamMember = typeof teamMembers.$inferSelect;
 
 // Creators database for searchable creator lookup
-export const creators = pgTable("creators", {
-  id: serial("id").primaryKey(),
-  ownerId: varchar("owner_id").notNull(),  // user who owns this creator entry
+export const creators = sqliteTable("creators", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  ownerId: text("owner_id").notNull(),  // user who owns this creator entry
   name: text("name").notNull(),
   handle: text("handle").notNull(),
   platform: text("platform"),
   notes: text("notes"),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: integer("created_at", { mode: "timestamp" }).default(sql`(unixepoch())`),
 });
 
 export const insertCreatorSchema = createInsertSchema(creators).omit({
@@ -196,12 +196,12 @@ export const scrapeTaskStatusOptions = ["queued", "running", "success", "failed"
 export type ScrapeTaskStatus = typeof scrapeTaskStatusOptions[number];
 
 // Scrape jobs table - tracks batch scrape operations
-export const scrapeJobs = pgTable("scrape_jobs", {
-  id: serial("id").primaryKey(),
+export const scrapeJobs = sqliteTable("scrape_jobs", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   campaignId: integer("campaign_id").references(() => campaigns.id).notNull(),
   status: text("status").notNull().default("queued"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  completedAt: timestamp("completed_at"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull().default(sql`(unixepoch())`),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
 });
 
 export const insertScrapeJobSchema = createInsertSchema(scrapeJobs).omit({
@@ -214,8 +214,8 @@ export type InsertScrapeJob = z.infer<typeof insertScrapeJobSchema>;
 export type ScrapeJob = typeof scrapeJobs.$inferSelect;
 
 // Scrape tasks table - individual scraping tasks within a job
-export const scrapeTasks = pgTable("scrape_tasks", {
-  id: serial("id").primaryKey(),
+export const scrapeTasks = sqliteTable("scrape_tasks", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
   jobId: integer("job_id").references(() => scrapeJobs.id).notNull(),
   socialLinkId: integer("social_link_id").references(() => socialLinks.id).notNull(),
   url: text("url").notNull(),
@@ -227,7 +227,7 @@ export const scrapeTasks = pgTable("scrape_tasks", {
   resultLikes: integer("result_likes"),
   resultComments: integer("result_comments"),
   resultShares: integer("result_shares"),
-  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull().default(sql`(unixepoch())`),
 });
 
 export const insertScrapeTaskSchema = createInsertSchema(scrapeTasks).omit({

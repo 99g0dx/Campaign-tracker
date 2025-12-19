@@ -13,6 +13,7 @@ import multer from "multer";
 import { parse } from "csv-parse/sync";
 import { enqueueScrapeJob, startScrapeQueueWorker } from "./scrapeQueue";
 import { getLiveTrackerStatus, runTrackingCycle } from "./liveTracker";
+import { sendPasswordResetEmail } from "./email";
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
@@ -175,6 +176,73 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Failed to delete campaign:", error);
       res.status(500).json({ error: "Failed to delete campaign" });
+    }
+  });
+
+  // Duplicate a campaign (copy campaign and social links with creator names only)
+  app.post("/api/campaigns/:id/duplicate", requireUser, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      // Verify ownership of original campaign
+      const originalCampaign = await storage.getCampaignForOwner(id, userId);
+      if (!originalCampaign) {
+        return res.status(404).json({ error: "Campaign not found or access denied" });
+      }
+
+      // Get new campaign name from request body (optional)
+      const newNameSchema = z.object({
+        name: z.string().optional(),
+      });
+      const parsed = newNameSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+
+      // Create new campaign with same details but new name
+      const newCampaignName = parsed.data.name || `${originalCampaign.name} (Copy)`;
+      const newCampaign = await storage.createCampaign({
+        ownerId: userId,
+        name: newCampaignName,
+        songTitle: originalCampaign.songTitle,
+        songArtist: originalCampaign.songArtist,
+        status: "Active", // Reset to Active status
+      });
+
+      // Get all social links from original campaign
+      const originalLinks = await storage.getSocialLinksByCampaign(id);
+
+      // Copy only the creator entries (placeholder links with creator names)
+      // Filter for links that are placeholders or have creator names
+      const creatorLinks = originalLinks.filter(link =>
+        link.creatorName && link.creatorName.trim() !== ""
+      );
+
+      // Create placeholder links for each creator in the new campaign
+      for (const link of creatorLinks) {
+        await storage.createSocialLink({
+          campaignId: newCampaign.id,
+          url: `placeholder://${newCampaign.id}/${Date.now()}/${Math.random()}`,
+          platform: "Unknown",
+          creatorName: link.creatorName,
+          postStatus: "pending", // Reset all to pending
+        });
+      }
+
+      res.status(201).json({
+        ...newCampaign,
+        copiedCreatorsCount: creatorLinks.length,
+      });
+    } catch (error) {
+      console.error("Failed to duplicate campaign:", error);
+      res.status(500).json({ error: "Failed to duplicate campaign" });
     }
   });
 
@@ -803,6 +871,28 @@ export async function registerRoutes(
   
   const COOKIE_PREFIX = "campaign_access_";
 
+  // Dev-only: unlock helper - sets the campaign access cookie in the browser and redirects to the front-end share page
+  // Usage: GET /dev/unlock/:slug (only works when NODE_ENV !== 'production')
+  if (process.env.NODE_ENV !== 'production') {
+    app.get('/dev/unlock/:slug', (req, res) => {
+      try {
+        const { slug } = req.params;
+        const cookieName = COOKIE_PREFIX + slug;
+        const frontend = process.env.FRONTEND_ORIGIN || 'http://localhost:5173';
+
+        // Return a small HTML page that sets the cookie (so it's set on the browser domain) and redirects
+        res.set('Content-Type', 'text/html');
+        res.send(`<!doctype html><html><head><meta charset="utf-8"><title>Unlock</title></head><body><script>
+          document.cookie = '${cookieName}=ok; path=/; SameSite=Lax';
+          window.location = '${frontend}/share/${slug}';
+        </script></body></html>`);
+      } catch (err) {
+        console.error('Dev unlock failed:', err);
+        res.status(500).send('Dev unlock failed');
+      }
+    });
+  }
+
   // Verify password for public campaign access
   app.post("/api/public/campaigns/:slug/verify", async (req, res) => {
     try {
@@ -858,6 +948,52 @@ export async function registerRoutes(
   app.get("/api/public/campaigns/:slug", async (req, res) => {
     try {
       const { slug } = req.params;
+
+      // Dev-only mock: return fixture data for quick previews without needing a DB or cookie
+      if (process.env.NODE_ENV !== "production" && slug === "test") {
+        const now = Date.now();
+        const socialLinks = [
+          // scraped very recently
+          { id: 1, url: "https://tiktok.com/@alice/video/1", platform: "tiktok", creatorName: "Alice", postStatus: "active", views: 1200, likes: 200, comments: 10, shares: 2, lastScrapedAt: new Date(now - 2 * 60 * 60 * 1000).toISOString() }, // 2 hours ago
+          // scraped yesterday
+          { id: 2, url: "https://instagram.com/p/abc", platform: "instagram", creatorName: "Bob", postStatus: "done", views: 3500, likes: 400, comments: 50, shares: 5, lastScrapedAt: new Date(now - 26 * 60 * 60 * 1000).toISOString() },
+          // placeholder row (should be excluded)
+          { id: 3, url: "placeholder://123", platform: null, creatorName: null, postStatus: "pending", views: 0, likes: 0, comments: 0, shares: 0 },
+          // not scraped yet
+          { id: 4, url: "https://youtube.com/watch?v=xyz", platform: "youtube", creatorName: "Carol", postStatus: "pending", views: 0, likes: 0, comments: 0, shares: 0 },
+          // duplicate post (same url as Alice) to test dedupe
+          { id: 5, url: "https://tiktok.com/@alice/video/1", platform: "tiktok", creatorName: "Alice D", postStatus: "active", views: 1200, likes: 200, comments: 10, shares: 2, lastScrapedAt: new Date(now - 2 * 60 * 60 * 1000).toISOString() },
+          // older scrape (10 days ago)
+          { id: 6, url: "https://tiktok.com/@dave/video/2", platform: "tiktok", creatorName: "Dave", postStatus: "done", views: 8000, likes: 800, comments: 80, shares: 10, lastScrapedAt: new Date(now - 10 * 24 * 60 * 60 * 1000).toISOString() },
+        ];
+
+        const engagementHistory = [] as any[];
+
+        const engagementWindows: Record<string, { views: number; likes: number; comments: number; shares: number; label: string }> = {};
+        const windows = [
+          { key: "24h", label: "Last 24 Hours", hoursAgo: 24 },
+          { key: "72h", label: "Last 72 Hours", hoursAgo: 72 },
+          { key: "7d", label: "Last 7 Days", hoursAgo: 24 * 7 },
+          { key: "30d", label: "Last 30 Days", hoursAgo: 24 * 30 },
+          { key: "60d", label: "Last 60 Days", hoursAgo: 24 * 60 },
+          { key: "90d", label: "Last 90 Days", hoursAgo: 24 * 90 },
+        ];
+
+        for (const w of windows) {
+          const cutoff = now - w.hoursAgo * 60 * 60 * 1000;
+          const filtered = socialLinks.filter((s) => s.lastScrapedAt && Date.parse(s.lastScrapedAt) >= cutoff && !(s.url || "").startsWith("placeholder://"));
+          const totals = filtered.reduce((acc, l) => ({ views: acc.views + (l.views || 0), likes: acc.likes + (l.likes || 0), comments: acc.comments + (l.comments || 0), shares: acc.shares + (l.shares || 0) }), { views: 0, likes: 0, comments: 0, shares: 0 });
+          engagementWindows[w.key] = { ...totals, label: w.label };
+        }
+
+        return res.json({
+          campaign: { id: 999, name: "Test Campaign", songTitle: "Test Song", songArtist: "Test Artist", status: "Active", createdAt: Date.now() },
+          socialLinks,
+          engagementHistory,
+          engagementWindows,
+        });
+      }
+
       const cookieName = COOKIE_PREFIX + slug;
 
       if (req.cookies?.[cookieName] !== "ok") {
@@ -1215,6 +1351,163 @@ export async function registerRoutes(
   // ==================== CSV IMPORT ROUTES ====================
 
   // Import posts from CSV for a campaign (verify ownership)
+  // New flexible CSV import with two modes: creators and posts
+  app.post("/api/campaigns/:id/import-csv", requireUser, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const campaignId = parseInt(req.params.id, 10);
+      if (isNaN(campaignId)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      const campaign = await storage.getCampaignForOwner(campaignId, userId);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      // Preprocessor to convert empty strings to undefined
+      const emptyToUndefined = (v: any) => {
+        if (v === null || v === undefined) return undefined;
+        if (typeof v === "string" && v.trim() === "") return undefined;
+        return v;
+      };
+
+      // Validation schemas for each mode
+      const creatorRowSchema = z.object({
+        handle: z.string().min(1),
+        platform: z.preprocess(emptyToUndefined, z.string().optional()),
+        profileUrl: z.preprocess(emptyToUndefined, z.string().url().optional()),
+      });
+
+      const postRowSchema = z.object({
+        url: z.string().url(),
+        creatorName: z.preprocess(emptyToUndefined, z.string().optional()),
+        platform: z.preprocess(emptyToUndefined, z.string().optional()),
+        views: z.number().optional(),
+        likes: z.number().optional(),
+        comments: z.number().optional(),
+        shares: z.number().optional(),
+      });
+
+      const importSchema = z.object({
+        mode: z.enum(["creators", "posts"]),
+        rows: z.array(z.record(z.any())),
+      });
+
+      const parsed = importSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors });
+      }
+
+      const { mode, rows } = parsed.data;
+
+      let imported = 0;
+      let skipped = 0;
+      let duplicates = 0;
+      const errors: string[] = [];
+
+      if (mode === "creators") {
+        // Import creators mode - create placeholder social links for each creator
+        const seen = new Set<string>();
+
+        for (const row of rows) {
+          try {
+            // Validate row with schema
+            const validationResult = creatorRowSchema.safeParse(row);
+            if (!validationResult.success) {
+              skipped++;
+              errors.push(`Invalid row for ${row.handle || "unknown"}: ${validationResult.error.message}`);
+              continue;
+            }
+
+            const { handle, platform, profileUrl } = validationResult.data;
+
+            // Deduplicate by handle + platform
+            const normalizedPlatform = platform?.toLowerCase();
+            const dedupeKey = normalizedPlatform ? `${handle}:${normalizedPlatform}` : handle;
+            if (seen.has(dedupeKey)) {
+              duplicates++;
+              continue;
+            }
+            seen.add(dedupeKey);
+
+            // Create a placeholder social link with creator info
+            const placeholderUrl = `placeholder://${campaignId}/${Date.now()}/${Math.random()}`;
+
+            await storage.createSocialLink({
+              campaignId,
+              url: placeholderUrl,
+              platform: normalizedPlatform || "Unknown",
+              creatorName: handle,
+              postStatus: "pending",
+            });
+
+            imported++;
+          } catch (err) {
+            console.error("Error importing creator:", err);
+            skipped++;
+            errors.push(`Failed to import ${row.handle || "unknown"}: ${err instanceof Error ? err.message : String(err)}`);
+          }
+        }
+      } else {
+        // Import posts mode
+        const seen = new Set<string>();
+
+        for (const row of rows) {
+          try {
+            const url = row.url?.trim();
+            if (!url) {
+              skipped++;
+              continue;
+            }
+
+            // Deduplicate by URL
+            if (seen.has(url)) {
+              duplicates++;
+              continue;
+            }
+            seen.add(url);
+
+            const platform = row.platform || getPlatformFromUrl(url);
+            const creatorName = row.creatorName || "Unknown";
+
+            await storage.createSocialLink({
+              campaignId,
+              url,
+              platform,
+              creatorName,
+              postStatus: "pending",
+              views: row.views || 0,
+              likes: row.likes || 0,
+              comments: row.comments || 0,
+              shares: row.shares || 0,
+            });
+
+            imported++;
+          } catch (err) {
+            console.error("Error importing post:", err);
+            skipped++;
+            errors.push(`Failed to import ${row.url || "unknown"}`);
+          }
+        }
+      }
+
+      res.json({
+        imported,
+        skipped,
+        duplicates,
+        errors: errors.slice(0, 10), // Return first 10 errors only
+      });
+    } catch (error) {
+      console.error("Failed to import CSV:", error);
+      res.status(500).json({ error: "Failed to import CSV" });
+    }
+  });
+
   app.post("/api/campaigns/:id/import-posts", requireUser, upload.single("file"), async (req: any, res) => {
     try {
       const userId = req.session?.userId;

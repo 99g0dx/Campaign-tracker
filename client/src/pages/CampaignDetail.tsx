@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRoute, Link } from "wouter";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Dialog,
   DialogContent,
@@ -61,8 +66,12 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  ArrowUp,
+  ArrowDown,
+  Filter,
 } from "lucide-react";
 import ShareCampaignModal from "@/components/ShareCampaignModal";
+import CsvImportModal from "@/components/CsvImportModal";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   useCampaigns,
@@ -540,6 +549,45 @@ type MetricVisibility = {
   shares: boolean;
 };
 
+type SortKey = "creator" | "platform" | "status" | "views" | "likes" | "comments" | "shares";
+type SortDir = "asc" | "desc";
+
+function SortableHeader({
+  children,
+  sortKey,
+  currentSortKey,
+  sortDir,
+  onSort,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  sortKey: SortKey;
+  currentSortKey: SortKey;
+  sortDir: SortDir;
+  onSort: (key: SortKey) => void;
+  align?: "left" | "right";
+}) {
+  const isActive = currentSortKey === sortKey;
+  return (
+    <TableHead className={align === "right" ? "text-right" : ""}>
+      <button
+        onClick={() => onSort(sortKey)}
+        className="flex items-center gap-1 hover:text-foreground transition-colors font-medium"
+        style={{ marginLeft: align === "right" ? "auto" : undefined }}
+      >
+        {children}
+        {isActive && (
+          sortDir === "asc" ? (
+            <ArrowUp className="h-3 w-3" />
+          ) : (
+            <ArrowDown className="h-3 w-3" />
+          )
+        )}
+      </button>
+    </TableHead>
+  );
+}
+
 export default function CampaignDetail() {
   const [, params] = useRoute("/campaign/:id");
   const [, setLocation] = useLocation();
@@ -548,8 +596,8 @@ export default function CampaignDetail() {
   const [addCreatorOpen, setAddCreatorOpen] = useState(false);
   const [editLink, setEditLink] = useState<SocialLink | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [csvImportOpen, setCsvImportOpen] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
-  const [importing, setImporting] = useState(false);
   const [linkToDelete, setLinkToDelete] = useState<SocialLink | null>(null);
   const [deleteCampaignOpen, setDeleteCampaignOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -560,6 +608,14 @@ export default function CampaignDetail() {
     comments: true,
     shares: true,
   });
+
+  // Sorting state
+  const [sortKey, setSortKey] = useState<SortKey>("creator");
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  // Status filter state
+  const ALL_STATUSES = ["Pending", "Briefed", "Active", "Done"] as const;
+  const [statusFilters, setStatusFilters] = useState<Set<string>>(new Set(ALL_STATUSES));
 
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
@@ -587,11 +643,141 @@ export default function CampaignDetail() {
   const campaign = campaigns?.find((c) => c.id === campaignId);
   const campaignLinks = socialLinks?.filter((l) => l.campaignId === campaignId) || [];
 
+  // Sorting helpers
+  const normalizeText = (v: any): string => (v ?? "").toString().trim().toLowerCase();
+
+  const parseNum = (v: any): { num: number; empty: boolean } => {
+    if (v === null || v === undefined) return { num: 0, empty: true };
+    const s = v.toString().trim();
+    if (s === "" || s === "-") return { num: 0, empty: true };
+    const n = Number(s.replace(/,/g, ""));
+    if (Number.isNaN(n)) return { num: 0, empty: true };
+    return { num: n, empty: false };
+  };
+
+  const statusRank = (status: string): number => {
+    const s = normalizeText(status);
+    const map: Record<string, number> = { pending: 1, briefed: 2, active: 3, done: 4 };
+    return map[s] ?? 999;
+  };
+
+  const handleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir(prev => prev === "asc" ? "desc" : "asc");
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  };
+
+  // Status filter helpers
+  const canonicalStatus = (status: string): string => {
+    const normalized = normalizeText(status);
+    if (normalized === "pending") return "Pending";
+    if (normalized === "briefed") return "Briefed";
+    if (normalized === "active") return "Active";
+    if (normalized === "done") return "Done";
+    return "Pending"; // fallback
+  };
+
+  const toggleStatus = (status: string) => {
+    setStatusFilters(prev => {
+      const next = new Set(prev);
+      if (next.has(status)) {
+        next.delete(status);
+      } else {
+        next.add(status);
+      }
+      // If user deselects everything, revert to ALL
+      if (next.size === 0) {
+        return new Set(ALL_STATUSES);
+      }
+      return next;
+    });
+  };
+
+  const selectAllStatuses = () => {
+    setStatusFilters(new Set(ALL_STATUSES));
+  };
+
+  const clearStatuses = () => {
+    setStatusFilters(new Set(ALL_STATUSES));
+  };
+
+  // Status filter button label
+  const statusFilterLabel = useMemo(() => {
+    if (statusFilters.size === ALL_STATUSES.length || statusFilters.size === 0) {
+      return "Status: All";
+    }
+    if (statusFilters.size === 1) {
+      return `Status: ${Array.from(statusFilters)[0]}`;
+    }
+    return `Status: ${statusFilters.size} selected`;
+  }, [statusFilters, ALL_STATUSES.length]);
+
+  // Filter and sort campaign links
+  const filteredAndSortedLinks = useMemo(() => {
+    // First filter by status
+    const filtered = campaignLinks.filter(link =>
+      statusFilters.has(canonicalStatus(link.postStatus))
+    );
+
+    // Then sort
+    const dir = sortDir === "asc" ? 1 : -1;
+    const rows = [...filtered];
+
+    rows.sort((a, b) => {
+      if (sortKey === "creator") {
+        return normalizeText(a.creatorName).localeCompare(normalizeText(b.creatorName)) * dir;
+      }
+
+      if (sortKey === "platform") {
+        const ap = normalizeText(a.platform);
+        const bp = normalizeText(b.platform);
+        const aEmpty = ap === "" || ap.includes("no link") || a.url.startsWith("placeholder://");
+        const bEmpty = bp === "" || bp.includes("no link") || b.url.startsWith("placeholder://");
+        if (aEmpty !== bEmpty) return (aEmpty ? 1 : -1) * dir;
+        return ap.localeCompare(bp) * dir;
+      }
+
+      if (sortKey === "status") {
+        const ar = statusRank(a.postStatus);
+        const br = statusRank(b.postStatus);
+        if (ar !== br) return (ar - br) * dir;
+        return normalizeText(a.postStatus).localeCompare(normalizeText(b.postStatus)) * dir;
+      }
+
+      // Numeric metrics
+      const fieldMap: Record<string, keyof SocialLink> = {
+        views: "views",
+        likes: "likes",
+        comments: "comments",
+        shares: "shares",
+      };
+      const field = fieldMap[sortKey];
+      if (field) {
+        const av = parseNum(a[field]);
+        const bv = parseNum(b[field]);
+
+        // Group real numbers together
+        if (av.empty !== bv.empty) {
+          return sortDir === "asc" ? (av.empty ? 1 : -1) : (av.empty ? -1 : 1);
+        }
+
+        return (av.num - bv.num) * dir;
+      }
+
+      return 0;
+    });
+
+    return rows;
+  }, [campaignLinks, sortKey, sortDir, statusFilters]);
+
   // Pagination calculations
-  const totalPages = Math.ceil(campaignLinks.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredAndSortedLinks.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const paginatedLinks = campaignLinks.slice(startIndex, endIndex);
+  const paginatedLinks = filteredAndSortedLinks.slice(startIndex, endIndex);
 
   // Reset to page 1 if current page is beyond total pages
   useEffect(() => {
@@ -710,37 +896,9 @@ export default function CampaignDetail() {
     URL.revokeObjectURL(url);
   };
 
-  const handleImportCSV = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file || !campaignId) return;
-
-    setImporting(true);
-    const formData = new FormData();
-    formData.append("file", file);
-
-    try {
-      const res = await fetch(`/api/campaigns/${campaignId}/import-posts`, {
-        method: "POST",
-        body: formData,
-        credentials: "include",
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Import failed");
-      toast({
-        title: "Import successful",
-        description: `Imported ${data.inserted} posts`,
-      });
-      queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
-    } catch (err: any) {
-      toast({
-        title: "Import failed",
-        description: err.message,
-        variant: "destructive",
-      });
-    } finally {
-      setImporting(false);
-      event.target.value = "";
-    }
+  const handleImportSuccess = () => {
+    queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });
   };
 
   const handleStatusChange = (linkId: number, newStatus: PostStatus) => {
@@ -1169,9 +1327,9 @@ export default function CampaignDetail() {
                   {activeScrapeJob.completedTasks}/{activeScrapeJob.totalTasks} scraped
                 </Badge>
               )}
-              <Button 
-                variant="outline" 
-                onClick={handleScrapeAll} 
+              <Button
+                variant="outline"
+                onClick={handleScrapeAll}
                 disabled={isScrapingAll || isBatchScraping || campaignLinks.length === 0}
                 data-testid="button-scrape-all"
               >
@@ -1182,7 +1340,47 @@ export default function CampaignDetail() {
                 )}
                 Scrape All
               </Button>
-              <Button 
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" data-testid="button-status-filter">
+                    <Filter className="h-4 w-4 mr-2" />
+                    {statusFilterLabel}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-64" align="end">
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <button
+                        onClick={selectAllStatuses}
+                        className="text-sm font-medium hover:underline"
+                      >
+                        All
+                      </button>
+                      <button
+                        onClick={clearStatuses}
+                        className="text-sm font-medium hover:underline"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {ALL_STATUSES.map((status) => (
+                        <label
+                          key={status}
+                          className="flex items-center gap-2 cursor-pointer"
+                        >
+                          <Checkbox
+                            checked={statusFilters.has(status)}
+                            onCheckedChange={() => toggleStatus(status)}
+                          />
+                          <span className="text-sm">{status}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </PopoverContent>
+              </Popover>
+              <Button
                 variant="outline" 
                 onClick={downloadCSV} 
                 disabled={campaignLinks.length === 0}
@@ -1191,26 +1389,14 @@ export default function CampaignDetail() {
                 <Download className="h-4 w-4 mr-2" />
                 Download CSV
               </Button>
-              <Button 
-                variant="outline" 
-                onClick={() => document.getElementById("csv-import-input")?.click()}
-                disabled={importing}
+              <Button
+                variant="outline"
+                onClick={() => setCsvImportOpen(true)}
                 data-testid="button-import-csv"
               >
-                {importing ? (
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                ) : (
-                  <Upload className="h-4 w-4 mr-2" />
-                )}
+                <Upload className="h-4 w-4 mr-2" />
                 Import CSV
               </Button>
-              <input
-                id="csv-import-input"
-                type="file"
-                accept=".csv"
-                onChange={handleImportCSV}
-                className="hidden"
-              />
               <Button onClick={() => setAddCreatorOpen(true)} data-testid="button-add-creator">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Creator
@@ -1235,13 +1421,66 @@ export default function CampaignDetail() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Creator</TableHead>
-                      <TableHead>Platform</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead className="text-right">Views</TableHead>
-                      <TableHead className="text-right">Likes</TableHead>
-                      <TableHead className="text-right">Comments</TableHead>
-                      <TableHead className="text-right">Shares</TableHead>
+                      <SortableHeader
+                        sortKey="creator"
+                        currentSortKey={sortKey}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      >
+                        Creator
+                      </SortableHeader>
+                      <SortableHeader
+                        sortKey="platform"
+                        currentSortKey={sortKey}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      >
+                        Platform
+                      </SortableHeader>
+                      <SortableHeader
+                        sortKey="status"
+                        currentSortKey={sortKey}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                      >
+                        Status
+                      </SortableHeader>
+                      <SortableHeader
+                        sortKey="views"
+                        currentSortKey={sortKey}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        align="right"
+                      >
+                        Views
+                      </SortableHeader>
+                      <SortableHeader
+                        sortKey="likes"
+                        currentSortKey={sortKey}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        align="right"
+                      >
+                        Likes
+                      </SortableHeader>
+                      <SortableHeader
+                        sortKey="comments"
+                        currentSortKey={sortKey}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        align="right"
+                      >
+                        Comments
+                      </SortableHeader>
+                      <SortableHeader
+                        sortKey="shares"
+                        currentSortKey={sortKey}
+                        sortDir={sortDir}
+                        onSort={handleSort}
+                        align="right"
+                      >
+                        Shares
+                      </SortableHeader>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -1409,7 +1648,7 @@ export default function CampaignDetail() {
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between gap-4 pt-4 border-t mt-4">
                     <p className="text-sm text-muted-foreground">
-                      Showing {startIndex + 1}-{Math.min(endIndex, campaignLinks.length)} of {campaignLinks.length} creators
+                      Showing {startIndex + 1}-{Math.min(endIndex, filteredAndSortedLinks.length)} of {filteredAndSortedLinks.length} creators
                     </p>
                     <div className="flex items-center gap-2">
                       <Button
@@ -1462,6 +1701,13 @@ export default function CampaignDetail() {
         initialSlug={campaign.shareSlug}
         open={shareModalOpen}
         onOpenChange={setShareModalOpen}
+      />
+
+      <CsvImportModal
+        open={csvImportOpen}
+        onClose={() => setCsvImportOpen(false)}
+        campaignId={campaignId || 0}
+        onImportSuccess={handleImportSuccess}
       />
 
       <AlertDialog open={!!linkToDelete} onOpenChange={(open) => !open && setLinkToDelete(null)}>

@@ -178,9 +178,19 @@ function AddLinkDialog({
     }
 
     try {
+      const parsedCampaignId = campaignId ? parseInt(campaignId, 10) : undefined;
+      if (!parsedCampaignId) {
+        toast({
+          title: "Error",
+          description: "Please select a campaign",
+          variant: "destructive",
+        });
+        return;
+      }
+
       await addLinkMutation.mutateAsync({
         url: url.trim(),
-        campaignId: campaignId ? parseInt(campaignId, 10) : undefined,
+        campaignId: parsedCampaignId,
       });
 
       toast({
