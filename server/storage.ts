@@ -14,6 +14,7 @@ import {
   type SocialLink,
   type InsertSocialLink,
   type CampaignWithStats,
+  type CampaignMetrics,
   type InsertEngagementHistory,
   type EngagementHistory,
   type User,
@@ -28,6 +29,7 @@ import {
   type InsertScrapeTask,
   type ScrapeJobWithStats,
 } from "@shared/schema";
+import { normalizeUrl, generatePostKey, shouldIncludeInMetrics } from "./urlUtils";
 
 export interface IStorage {
   // User operations
@@ -97,6 +99,11 @@ export interface IStorage {
   getScrapeTask(id: number): Promise<ScrapeTask | undefined>;
   getQueuedScrapeTasks(limit?: number): Promise<ScrapeTask[]>;
   updateScrapeTask(id: number, data: Partial<ScrapeTask>): Promise<ScrapeTask | undefined>;
+  
+  // Unified campaign metrics (single source of truth)
+  getCampaignMetrics(campaignId: number, days?: number): Promise<CampaignMetrics>;
+  getActivePostsForScraping(): Promise<SocialLink[]>;
+  updateSocialLinkCanonicalUrl(id: number, canonicalUrl: string, postKey: string): Promise<SocialLink | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -578,6 +585,195 @@ export class DatabaseStorage implements IStorage {
       .where(eq(scrapeTasks.id, id))
       .returning();
     return updated;
+  }
+
+  // Update canonical URL and post key for a social link
+  async updateSocialLinkCanonicalUrl(id: number, canonicalUrl: string, postKey: string): Promise<SocialLink | undefined> {
+    const [updated] = await db.update(socialLinks)
+      .set({ canonicalUrl, postKey })
+      .where(eq(socialLinks.id, id))
+      .returning();
+    return updated;
+  }
+
+  // Get all active posts for background scraping
+  async getActivePostsForScraping(): Promise<SocialLink[]> {
+    return await db.select()
+      .from(socialLinks)
+      .where(
+        and(
+          sql`${socialLinks.url} NOT LIKE 'placeholder://%'`,
+          or(
+            eq(socialLinks.postStatus, "active"),
+            eq(socialLinks.postStatus, "briefed"),
+            eq(socialLinks.postStatus, "done")
+          )
+        )
+      );
+  }
+
+  // Unified campaign metrics - single source of truth for KPI totals and chart
+  async getCampaignMetrics(campaignId: number, days: number = 30): Promise<CampaignMetrics> {
+    // Get all links for this campaign
+    const links = await this.getSocialLinksByCampaign(campaignId);
+    
+    // Filter and deduplicate posts
+    const uniquePostsMap = new Map<string, SocialLink>();
+    let lastUpdated: Date | null = null;
+    
+    for (const link of links) {
+      // Skip pending posts and placeholder URLs
+      if (!shouldIncludeInMetrics(link)) {
+        continue;
+      }
+      
+      // Generate post key for deduplication
+      const postKey = link.postKey || generatePostKey(link.url, link.platform);
+      
+      // Keep only one entry per unique post (prefer the one with more recent scrape)
+      const existing = uniquePostsMap.get(postKey);
+      if (!existing || 
+          (link.lastScrapedAt && (!existing.lastScrapedAt || link.lastScrapedAt > existing.lastScrapedAt))) {
+        uniquePostsMap.set(postKey, link);
+      }
+      
+      // Track most recent scrape time
+      if (link.lastScrapedAt && (!lastUpdated || link.lastScrapedAt > lastUpdated)) {
+        lastUpdated = link.lastScrapedAt;
+      }
+    }
+    
+    const uniquePosts = Array.from(uniquePostsMap.values());
+    const linkIds = uniquePosts.map(l => l.id);
+    
+    // Calculate totals from unique posts' latest metrics (single source of truth)
+    const totals = {
+      views: uniquePosts.reduce((sum, l) => sum + (l.views || 0), 0),
+      likes: uniquePosts.reduce((sum, l) => sum + (l.likes || 0), 0),
+      comments: uniquePosts.reduce((sum, l) => sum + (l.comments || 0), 0),
+      shares: uniquePosts.reduce((sum, l) => sum + (l.shares || 0), 0),
+    };
+    
+    // Build time series from engagement history with proper as-of calculation
+    const timeSeries = await this.buildTimeSeriesAsOf(linkIds, uniquePosts, days);
+    
+    return {
+      totals,
+      timeSeries,
+      trackedPostsCount: uniquePosts.length,
+      lastUpdatedAt: lastUpdated?.toISOString() || null,
+    };
+  }
+
+  // Build an "as-of" time series where each day shows cumulative totals
+  private async buildTimeSeriesAsOf(
+    linkIds: number[],
+    uniquePosts: SocialLink[],
+    days: number
+  ): Promise<{ date: string; views: number; likes: number; comments: number; shares: number }[]> {
+    if (linkIds.length === 0) {
+      return [];
+    }
+    
+    // Get all engagement history for these links
+    const history = await db.select()
+      .from(engagementHistory)
+      .where(inArray(engagementHistory.socialLinkId, linkIds))
+      .orderBy(asc(engagementHistory.recordedAt));
+    
+    // Build a map of linkId -> sorted history records
+    const historyByLink = new Map<number, typeof history>();
+    for (const record of history) {
+      const linkHistory = historyByLink.get(record.socialLinkId) || [];
+      linkHistory.push(record);
+      historyByLink.set(record.socialLinkId, linkHistory);
+    }
+    
+    // Generate date range
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - days);
+    
+    const timeSeries: { date: string; views: number; likes: number; comments: number; shares: number }[] = [];
+    
+    for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+      const dateEnd = new Date(dateStr + 'T23:59:59.999Z');
+      
+      let totalViews = 0;
+      let totalLikes = 0;
+      let totalComments = 0;
+      let totalShares = 0;
+      
+      // For each unique post, find the latest metrics on or before this date
+      for (const post of uniquePosts) {
+        const postHistory = historyByLink.get(post.id) || [];
+        
+        // Find latest record on or before this date
+        let latestRecord: typeof history[0] | null = null;
+        for (const record of postHistory) {
+          if (record.recordedAt <= dateEnd) {
+            latestRecord = record;
+          } else {
+            break; // History is sorted, so we can stop
+          }
+        }
+        
+        if (latestRecord) {
+          totalViews += latestRecord.views || 0;
+          totalLikes += latestRecord.likes || 0;
+          totalComments += latestRecord.comments || 0;
+          totalShares += latestRecord.shares || 0;
+        }
+      }
+      
+      // Only add date if there's any data
+      if (totalViews > 0 || totalLikes > 0 || totalComments > 0 || totalShares > 0) {
+        timeSeries.push({
+          date: dateStr,
+          views: totalViews,
+          likes: totalLikes,
+          comments: totalComments,
+          shares: totalShares,
+        });
+      }
+    }
+    
+    // Ensure the last point matches the totals from latest metrics
+    // If there's no history or chart is empty, add today's totals
+    const today = new Date().toISOString().split('T')[0];
+    const lastPoint = timeSeries[timeSeries.length - 1];
+    
+    const currentTotals = {
+      views: uniquePosts.reduce((sum, l) => sum + (l.views || 0), 0),
+      likes: uniquePosts.reduce((sum, l) => sum + (l.likes || 0), 0),
+      comments: uniquePosts.reduce((sum, l) => sum + (l.comments || 0), 0),
+      shares: uniquePosts.reduce((sum, l) => sum + (l.shares || 0), 0),
+    };
+    
+    if (!lastPoint) {
+      // No history at all - add current totals as today's data
+      if (currentTotals.views > 0 || currentTotals.likes > 0) {
+        timeSeries.push({
+          date: today,
+          ...currentTotals,
+        });
+      }
+    } else if (lastPoint.date !== today) {
+      // Add today's current totals as the last point
+      timeSeries.push({
+        date: today,
+        ...currentTotals,
+      });
+    } else {
+      // Update today's point to match current totals (ensures alignment)
+      lastPoint.views = currentTotals.views;
+      lastPoint.likes = currentTotals.likes;
+      lastPoint.comments = currentTotals.comments;
+      lastPoint.shares = currentTotals.shares;
+    }
+    
+    return timeSeries;
   }
 
 }
