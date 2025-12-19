@@ -74,7 +74,8 @@ import {
   useDeleteSocialLink,
   useDeleteCampaign,
   useUpdateCampaignStatus,
-  useCampaignEngagementHistory,
+  useCampaignMetrics,
+  useLiveTrackerStatus,
   useActiveScrapeJob,
   useScrapeTasks,
   type SocialLink,
@@ -83,6 +84,7 @@ import {
 } from "@/hooks/useCampaigns";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { queryClient } from "@/lib/queryClient";
 import {
   LineChart,
   Line,
@@ -561,7 +563,9 @@ export default function CampaignDetail() {
 
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
-  const { data: engagementHistory, isLoading: historyLoading } = useCampaignEngagementHistory(campaignId || 0);
+  const selectedRangeOption = TIME_RANGE_OPTIONS.find((o) => o.value === timeRange) || TIME_RANGE_OPTIONS[2];
+  const { data: campaignMetrics, isLoading: metricsLoading } = useCampaignMetrics(campaignId || 0, selectedRangeOption.days);
+  const { data: trackerStatus } = useLiveTrackerStatus();
   const { mutate: updateLink } = useUpdateSocialLink();
   const { mutate: deleteLink, isPending: isDeleting } = useDeleteSocialLink();
   const deleteCampaignMutation = useDeleteCampaign();
@@ -596,15 +600,12 @@ export default function CampaignDetail() {
     }
   }, [campaignLinks.length, currentPage, totalPages]);
 
-  const selectedRangeOption = TIME_RANGE_OPTIONS.find((o) => o.value === timeRange) || TIME_RANGE_OPTIONS[2];
-  const cutoffDate = new Date();
-  cutoffDate.setDate(cutoffDate.getDate() - selectedRangeOption.days);
-
-  const chartData = engagementHistory
-    ?.filter((point) => new Date(point.date) >= cutoffDate)
-    .map((point) => ({
+  // Chart data from unified metrics endpoint
+  const chartData = campaignMetrics?.timeSeries
+    ?.map((point) => ({
       ...point,
       date: new Date(point.date).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      totalEngagement: point.likes + point.comments + point.shares,
     })) || [];
 
   const hasChartData = chartData.length > 0;
@@ -619,6 +620,9 @@ export default function CampaignDetail() {
   };
   
   const trend = getEngagementTrend();
+  
+  // Use totals from unified metrics (single source of truth)
+  const metricsTotals = campaignMetrics?.totals || { views: 0, likes: 0, comments: 0, shares: 0 };
 
   const toggleMetric = (metric: keyof MetricVisibility) => {
     setVisibleMetrics(prev => ({ ...prev, [metric]: !prev[metric] }));
@@ -913,7 +917,7 @@ export default function CampaignDetail() {
                 <div>
                   <p className="text-sm text-muted-foreground">Total Views</p>
                   <p className="text-2xl font-bold" data-testid="text-campaign-views">
-                    {formatNumber(campaign.totalViews)}
+                    {formatNumber(metricsTotals.views)}
                   </p>
                 </div>
               </div>
@@ -928,7 +932,7 @@ export default function CampaignDetail() {
                 <div>
                   <p className="text-sm text-muted-foreground">Total Likes</p>
                   <p className="text-2xl font-bold" data-testid="text-campaign-likes">
-                    {formatNumber(campaign.totalLikes)}
+                    {formatNumber(metricsTotals.likes)}
                   </p>
                 </div>
               </div>
@@ -943,7 +947,7 @@ export default function CampaignDetail() {
                 <div>
                   <p className="text-sm text-muted-foreground">Comments</p>
                   <p className="text-2xl font-bold" data-testid="text-campaign-comments">
-                    {formatNumber(campaign.totalComments)}
+                    {formatNumber(metricsTotals.comments)}
                   </p>
                 </div>
               </div>
@@ -958,7 +962,7 @@ export default function CampaignDetail() {
                 <div>
                   <p className="text-sm text-muted-foreground">Shares</p>
                   <p className="text-2xl font-bold" data-testid="text-campaign-shares">
-                    {formatNumber(campaign.totalShares)}
+                    {formatNumber(metricsTotals.shares)}
                   </p>
                 </div>
               </div>
@@ -971,9 +975,9 @@ export default function CampaignDetail() {
                   <User className="h-5 w-5 text-primary" />
                 </div>
                 <div>
-                  <p className="text-sm text-muted-foreground">Creators</p>
+                  <p className="text-sm text-muted-foreground">Tracked Posts</p>
                   <p className="text-2xl font-bold" data-testid="text-campaign-creators">
-                    {campaignLinks.length}
+                    {campaignMetrics?.trackedPostsCount || 0}
                   </p>
                 </div>
               </div>
@@ -986,6 +990,12 @@ export default function CampaignDetail() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center gap-3">
                 <CardTitle>Engagement Trends</CardTitle>
+                {trackerStatus?.isScheduled && (
+                  <Badge variant="outline" className="text-xs">
+                    <RefreshCw className="h-3 w-3 mr-1" />
+                    Live Tracking
+                  </Badge>
+                )}
                 {trend && (
                   <Badge variant={trend.isUp ? "default" : "destructive"} className="text-xs">
                     {trend.isUp ? (
@@ -1060,7 +1070,7 @@ export default function CampaignDetail() {
             </div>
           </CardHeader>
           <CardContent>
-            {historyLoading ? (
+            {metricsLoading ? (
               <Skeleton className="h-[300px] w-full" />
             ) : hasChartData ? (
               <ResponsiveContainer width="100%" height={300}>
@@ -1140,6 +1150,11 @@ export default function CampaignDetail() {
                   Engagement history will appear here as posts are scraped. Rescrape posts to start tracking trends.
                 </p>
               </div>
+            )}
+            {campaignMetrics?.lastUpdatedAt && (
+              <p className="text-xs text-muted-foreground mt-3 text-right">
+                Last updated: {new Date(campaignMetrics.lastUpdatedAt).toLocaleString()}
+              </p>
             )}
           </CardContent>
         </Card>
@@ -1376,7 +1391,7 @@ export default function CampaignDetail() {
                                   <Button
                                     size="icon"
                                     variant="ghost"
-                                    disabled={isRescraping || link.status === "scraping" || isBatchScraping}
+                                    disabled={isRescraping || link.status === "scraping" || !!isBatchScraping}
                                     onClick={() => rescrape(link.id)}
                                     data-testid={`button-rescrape-${link.id}`}
                                   >

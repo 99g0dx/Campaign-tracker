@@ -297,3 +297,48 @@ export function useCampaignEngagementHistory(campaignId: number) {
     refetchInterval: 30000,
   });
 }
+
+export interface CampaignMetrics {
+  totals: {
+    views: number;
+    likes: number;
+    comments: number;
+    shares: number;
+  };
+  timeSeries: {
+    date: string;
+    views: number;
+    likes: number;
+    comments: number;
+    shares: number;
+  }[];
+  trackedPostsCount: number;
+  lastUpdatedAt: string | null;
+}
+
+export function useCampaignMetrics(campaignId: number, days: number = 30) {
+  return useQuery<CampaignMetrics>({
+    queryKey: ["/api/campaigns", campaignId, "metrics", days],
+    queryFn: async () => {
+      const response = await fetch(`/api/campaigns/${campaignId}/metrics?days=${days}`);
+      if (!response.ok) throw new Error("Failed to fetch campaign metrics");
+      return response.json();
+    },
+    enabled: !!campaignId,
+    refetchInterval: 30000,
+  });
+}
+
+export interface LiveTrackerStatus {
+  isRunning: boolean;
+  isScheduled: boolean;
+  lastRunAt: string | null;
+  nextRunAt: string | null;
+}
+
+export function useLiveTrackerStatus() {
+  return useQuery<LiveTrackerStatus>({
+    queryKey: ["/api/live-tracker/status"],
+    refetchInterval: 60000,
+  });
+}
