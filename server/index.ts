@@ -3,6 +3,7 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import cookieParser from "cookie-parser";
+import { startLiveTracker } from "./liveTracker";
 
 const app = express();
 app.use(cookieParser());
@@ -95,6 +96,10 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      
+      // Start live tracking engine (every 10 minutes)
+      startLiveTracker();
+      log("Live tracker started - will scrape active posts every 10 minutes");
     },
   );
 })();

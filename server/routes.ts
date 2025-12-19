@@ -12,6 +12,7 @@ import crypto from "crypto";
 import multer from "multer";
 import { parse } from "csv-parse/sync";
 import { enqueueScrapeJob, startScrapeQueueWorker } from "./scrapeQueue";
+import { getLiveTrackerStatus, runTrackingCycle } from "./liveTracker";
 
 const upload = multer({ 
   storage: multer.memoryStorage(),
@@ -528,6 +529,55 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Failed to fetch engagement history:", error);
       res.status(500).json({ error: "Failed to fetch engagement history" });
+    }
+  });
+
+  // Get unified campaign metrics (single source of truth for KPI totals + chart)
+  app.get("/api/campaigns/:id/metrics", requireUser, async (req: any, res) => {
+    try {
+      const userId = req.session?.userId;
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+      const id = parseInt(req.params.id, 10);
+      if (isNaN(id)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+      
+      const campaign = await storage.getCampaignForOwner(id, userId);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+      
+      // Get days parameter (default 30)
+      const days = parseInt(req.query.days as string, 10) || 30;
+      const metrics = await storage.getCampaignMetrics(id, days);
+      res.json(metrics);
+    } catch (error) {
+      console.error("Failed to fetch campaign metrics:", error);
+      res.status(500).json({ error: "Failed to fetch campaign metrics" });
+    }
+  });
+
+  // Get live tracker status
+  app.get("/api/live-tracker/status", requireUser, async (_req, res) => {
+    try {
+      const status = getLiveTrackerStatus();
+      res.json(status);
+    } catch (error) {
+      console.error("Failed to get tracker status:", error);
+      res.status(500).json({ error: "Failed to get tracker status" });
+    }
+  });
+
+  // Trigger manual tracking run
+  app.post("/api/live-tracker/run", requireUser, async (_req, res) => {
+    try {
+      const result = await runTrackingCycle();
+      res.json(result);
+    } catch (error) {
+      console.error("Failed to run tracking cycle:", error);
+      res.status(500).json({ error: "Failed to run tracking cycle" });
     }
   });
 
