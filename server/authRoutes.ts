@@ -284,9 +284,8 @@ router.post("/forgot-password", async (req, res) => {
 
       await storage.updateUserResetToken(user.id, resetToken, resetTokenExpiresAt);
 
-      const host = process.env.REPLIT_DEV_DOMAIN || process.env.REPLIT_DOMAINS?.split(",")[0] || "localhost:5000";
-      const protocol = host.includes("localhost") ? "http" : "https";
-      const resetUrl = `${protocol}://${host}/reset-password?token=${resetToken}`;
+      const appUrl = process.env.APP_URL || "http://localhost:5000";
+      const resetUrl = `${appUrl}/reset-password?token=${resetToken}`;
 
       // Send password reset email
       try {

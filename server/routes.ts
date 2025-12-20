@@ -1200,11 +1200,7 @@ export async function registerRoutes(
       await storage.updateUserResetToken(user.id, token, expires);
 
       // Get the app URL from environment or request
-      const appUrl = process.env.REPLIT_DEV_DOMAIN 
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-        : process.env.REPLIT_DEPLOYMENT_URL 
-          ? `https://${process.env.REPLIT_DEPLOYMENT_URL}`
-          : `${req.protocol}://${req.get('host')}`;
+      const appUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
       
       const resetLink = `${appUrl}/reset-password?token=${token}`;
 
