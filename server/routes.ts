@@ -22,6 +22,10 @@ const upload = multer({
   },
 });
 
+function getSessionUserId(req: any): string | undefined {
+  return req?.session?.userId || req?.user?.id || req?.user?.claims?.sub;
+}
+
 // Rate limiting for shared campaign password attempts
 const passwordAttempts = new Map<string, { count: number; lastAttempt: number; lockedUntil: number | null }>();
 const MAX_ATTEMPTS = 5;
@@ -104,7 +108,7 @@ export async function registerRoutes(
   // Get all campaigns with aggregated stats (scoped to user)
   app.get("/api/campaigns", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -119,7 +123,7 @@ export async function registerRoutes(
   // Get a single campaign (verify ownership)
   app.get("/api/campaigns/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -141,7 +145,7 @@ export async function registerRoutes(
   // Create a new campaign
   app.post("/api/campaigns", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -160,7 +164,7 @@ export async function registerRoutes(
   // Delete a campaign (verify ownership)
   app.delete("/api/campaigns/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -182,7 +186,7 @@ export async function registerRoutes(
   // Duplicate a campaign (copy campaign and social links with creator names only)
   app.post("/api/campaigns/:id/duplicate", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -249,7 +253,7 @@ export async function registerRoutes(
   // Update campaign status (verify ownership)
   app.patch("/api/campaigns/:id/status", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -454,7 +458,7 @@ export async function registerRoutes(
   // Rescrape all social links for a campaign (verify ownership) - uses job queue
   app.post("/api/campaigns/:id/rescrape-all", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -486,7 +490,7 @@ export async function registerRoutes(
   // Get scrape job status with aggregated stats
   app.get("/api/scrape-jobs/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -516,7 +520,7 @@ export async function registerRoutes(
   // Get scrape tasks for a job
   app.get("/api/scrape-jobs/:id/tasks", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -547,7 +551,7 @@ export async function registerRoutes(
   // Get active scrape job for a campaign
   app.get("/api/campaigns/:id/active-scrape-job", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -578,7 +582,7 @@ export async function registerRoutes(
   // Get campaign engagement history for charts (verify ownership)
   app.get("/api/campaigns/:id/engagement-history", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -603,7 +607,7 @@ export async function registerRoutes(
   // Get unified campaign metrics (single source of truth for KPI totals + chart)
   app.get("/api/campaigns/:id/metrics", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -777,7 +781,7 @@ export async function registerRoutes(
   // Enable or update share settings for a campaign (verify ownership)
   app.post("/api/campaigns/:id/share", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -843,7 +847,7 @@ export async function registerRoutes(
   // Get share status for a campaign (verify ownership)
   app.get("/api/campaigns/:id/share", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1089,7 +1093,7 @@ export async function registerRoutes(
   // Check if user has password set
   app.get("/api/auth/has-password", requireUser, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1105,7 +1109,7 @@ export async function registerRoutes(
   // Change password (logged-in user)
   app.post("/api/auth/change-password", requireUser, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1145,7 +1149,7 @@ export async function registerRoutes(
   // Set password (for users without password - first time setup)
   app.post("/api/auth/set-password", requireUser, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1276,7 +1280,7 @@ export async function registerRoutes(
   // Get team members for current user
   app.get("/api/team-members", requireUser, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1292,7 +1296,7 @@ export async function registerRoutes(
   // Add team member
   app.post("/api/team-members", requireUser, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1323,7 +1327,7 @@ export async function registerRoutes(
   // Remove team member
   app.delete("/api/team-members/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1350,7 +1354,7 @@ export async function registerRoutes(
   // New flexible CSV import with two modes: creators and posts
   app.post("/api/campaigns/:id/import-csv", requireUser, async (req: any, res) => {
     try {
-      const userId = req.session?.userId;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1575,7 +1579,7 @@ export async function registerRoutes(
   // Get all creators for the current user
   app.get("/api/creators", requireUser, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1591,7 +1595,7 @@ export async function registerRoutes(
   // Search creators by name or handle
   app.get("/api/creators/search", requireUser, async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }
@@ -1628,7 +1632,7 @@ export async function registerRoutes(
   // Import creators from CSV
   app.post("/api/creators/import", requireUser, upload.single("file"), async (req: any, res) => {
     try {
-      const userId = req.user?.id;
+      const userId = getSessionUserId(req);
       if (!userId) {
         return res.status(401).json({ error: "Not authenticated" });
       }

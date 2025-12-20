@@ -4,6 +4,10 @@ import crypto from "crypto";
 import { z } from "zod";
 import { sendVerificationEmail } from "./email";
 
+function getSessionUserId(req: any): string | undefined {
+  return req?.session?.userId || req?.user?.id || req?.user?.claims?.sub;
+}
+
 const router = Router();
 
 const startVerificationSchema = z.object({
@@ -19,7 +23,7 @@ const verifyCodeSchema = z.object({
 
 router.post("/start", async (req: any, res) => {
   try {
-    const userId = req.user?.claims?.sub;
+    const userId = getSessionUserId(req);
     if (!userId) {
       return res.status(401).json({ error: "Not authenticated" });
     }
@@ -62,7 +66,7 @@ router.post("/start", async (req: any, res) => {
 
 router.post("/verify", async (req: any, res) => {
   try {
-    const userId = req.user?.claims?.sub;
+    const userId = getSessionUserId(req);
     if (!userId) {
       return res.status(401).json({ error: "Not authenticated" });
     }
@@ -104,7 +108,7 @@ router.post("/verify", async (req: any, res) => {
 
 router.post("/resend", async (req: any, res) => {
   try {
-    const userId = req.user?.claims?.sub;
+    const userId = getSessionUserId(req);
     if (!userId) {
       return res.status(401).json({ error: "Not authenticated" });
     }
