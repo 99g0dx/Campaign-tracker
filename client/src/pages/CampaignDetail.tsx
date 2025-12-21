@@ -617,6 +617,9 @@ export default function CampaignDetail() {
   const ALL_STATUSES = ["Pending", "Briefed", "Active", "Done"] as const;
   const [statusFilters, setStatusFilters] = useState<Set<string>>(new Set(ALL_STATUSES));
 
+  // Search state
+  const [searchTerm, setSearchTerm] = useState("");
+
   const { data: campaigns, isLoading: campaignsLoading } = useCampaigns();
   const { data: socialLinks, isLoading: linksLoading } = useSocialLinks();
   const selectedRangeOption = TIME_RANGE_OPTIONS.find((o) => o.value === timeRange) || TIME_RANGE_OPTIONS[2];
@@ -717,10 +720,22 @@ export default function CampaignDetail() {
 
   // Filter and sort campaign links
   const filteredAndSortedLinks = useMemo(() => {
-    // First filter by status
-    const filtered = campaignLinks.filter(link =>
-      statusFilters.has(canonicalStatus(link.postStatus))
-    );
+    // First filter by status and search
+    const searchLower = searchTerm.toLowerCase().trim();
+    const filtered = campaignLinks.filter(link => {
+      // Status filter
+      if (!statusFilters.has(canonicalStatus(link.postStatus))) {
+        return false;
+      }
+      // Search filter - match creator name or handle (if available)
+      if (searchLower) {
+        const creatorNameMatch = (link.creatorName || "").toLowerCase().includes(searchLower);
+        // Check if platform/URL contains handle-like pattern
+        const urlMatch = (link.url || "").toLowerCase().includes(searchLower);
+        return creatorNameMatch || urlMatch;
+      }
+      return true;
+    });
 
     // Then sort
     const dir = sortDir === "asc" ? 1 : -1;
@@ -771,7 +786,7 @@ export default function CampaignDetail() {
     });
 
     return rows;
-  }, [campaignLinks, sortKey, sortDir, statusFilters]);
+  }, [campaignLinks, sortKey, sortDir, statusFilters, searchTerm]);
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredAndSortedLinks.length / itemsPerPage);
@@ -1417,267 +1432,296 @@ export default function CampaignDetail() {
                 </Button>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <SortableHeader
-                        sortKey="creator"
-                        currentSortKey={sortKey}
-                        sortDir={sortDir}
-                        onSort={handleSort}
-                      >
-                        Creator
-                      </SortableHeader>
-                      <SortableHeader
-                        sortKey="platform"
-                        currentSortKey={sortKey}
-                        sortDir={sortDir}
-                        onSort={handleSort}
-                      >
-                        Platform
-                      </SortableHeader>
-                      <SortableHeader
-                        sortKey="status"
-                        currentSortKey={sortKey}
-                        sortDir={sortDir}
-                        onSort={handleSort}
-                      >
-                        Status
-                      </SortableHeader>
-                      <SortableHeader
-                        sortKey="views"
-                        currentSortKey={sortKey}
-                        sortDir={sortDir}
-                        onSort={handleSort}
-                        align="right"
-                      >
-                        Views
-                      </SortableHeader>
-                      <SortableHeader
-                        sortKey="likes"
-                        currentSortKey={sortKey}
-                        sortDir={sortDir}
-                        onSort={handleSort}
-                        align="right"
-                      >
-                        Likes
-                      </SortableHeader>
-                      <SortableHeader
-                        sortKey="comments"
-                        currentSortKey={sortKey}
-                        sortDir={sortDir}
-                        onSort={handleSort}
-                        align="right"
-                      >
-                        Comments
-                      </SortableHeader>
-                      <SortableHeader
-                        sortKey="shares"
-                        currentSortKey={sortKey}
-                        sortDir={sortDir}
-                        onSort={handleSort}
-                        align="right"
-                      >
-                        Shares
-                      </SortableHeader>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {paginatedLinks.map((link) => {
-                      const isPlaceholder = link.url.startsWith("placeholder://");
-                      const statusOption = POST_STATUS_OPTIONS.find((o) => o.value === link.postStatus) || POST_STATUS_OPTIONS[0];
-
-                      return (
-                        <TableRow key={link.id} data-testid={`row-link-${link.id}`}>
-                          <TableCell>
-                            <div className="flex items-center gap-2">
-                              <User className="h-4 w-4 text-muted-foreground" />
-                              <span className="font-medium">
-                                {link.creatorName || "Unknown"}
-                              </span>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {isPlaceholder ? (
-                              <Badge variant="outline" className="text-xs">
-                                <LinkIcon className="h-3 w-3 mr-1" />
-                                No link yet
-                              </Badge>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <Badge className={`text-xs ${getPlatformColor(link.platform)}`}>
-                                  {link.platform}
-                                </Badge>
-                                <a
-                                  href={link.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-muted-foreground hover:text-foreground"
-                                >
-                                  <ExternalLink className="h-3 w-3" />
-                                </a>
-                              </div>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <Select
-                              value={link.postStatus}
-                              onValueChange={(v) => handleStatusChange(link.id, v as PostStatus)}
-                            >
-                              <SelectTrigger
-                                className={`w-[100px] h-7 text-xs ${statusOption.color}`}
-                                data-testid={`select-status-${link.id}`}
-                              >
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {POST_STATUS_OPTIONS.map((opt) => (
-                                  <SelectItem key={opt.value} value={opt.value}>
-                                    {opt.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {isPlaceholder ? "-" : formatNumber(link.views)}
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {isPlaceholder ? "-" : formatNumber(link.likes)}
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {isPlaceholder ? "-" : formatNumber(link.comments)}
-                          </TableCell>
-                          <TableCell className="text-right font-medium">
-                            {isPlaceholder ? "-" : formatNumber(link.shares)}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => setEditLink(link)}
-                                data-testid={`button-edit-${link.id}`}
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                onClick={() => setLinkToDelete(link)}
-                                data-testid={`button-delete-${link.id}`}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                              {isPlaceholder ? (
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setEditLink(link)}
-                                  data-testid={`button-add-url-${link.id}`}
-                                >
-                                  <LinkIcon className="h-3 w-3 mr-1" />
-                                  Add Link
-                                </Button>
-                              ) : (
-                                <>
-                                  {(() => {
-                                    const scrapeTask = scrapeTasksByLinkId.get(link.id);
-                                    if (scrapeTask) {
-                                      if (scrapeTask.status === "queued") {
-                                        return (
-                                          <Badge variant="outline" className="text-xs" data-testid={`badge-scrape-queued-${link.id}`}>
-                                            Queued
-                                          </Badge>
-                                        );
-                                      }
-                                      if (scrapeTask.status === "running") {
-                                        return (
-                                          <Badge variant="outline" className="text-xs" data-testid={`badge-scrape-running-${link.id}`}>
-                                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                                            Scraping
-                                          </Badge>
-                                        );
-                                      }
-                                      if (scrapeTask.status === "failed") {
-                                        return (
-                                          <Badge variant="destructive" className="text-xs" data-testid={`badge-scrape-failed-${link.id}`} title={scrapeTask.lastError || "Scraping failed"}>
-                                            Failed
-                                          </Badge>
-                                        );
-                                      }
-                                    }
-                                    if (link.status === "scraping") {
-                                      return (
-                                        <Badge variant="outline" className="text-xs">
-                                          <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                                          Scraping
-                                        </Badge>
-                                      );
-                                    }
-                                    if (link.status === "error") {
-                                      return (
-                                        <Badge variant="destructive" className="text-xs" title={link.errorMessage || "Error"}>
-                                          Error
-                                        </Badge>
-                                      );
-                                    }
-                                    return null;
-                                  })()}
-                                  <Button
-                                    size="icon"
-                                    variant="ghost"
-                                    disabled={isRescraping || link.status === "scraping" || !!isBatchScraping}
-                                    onClick={() => rescrape(link.id)}
-                                    data-testid={`button-rescrape-${link.id}`}
-                                  >
-                                    <RefreshCw className={`h-4 w-4 ${isRescraping ? "animate-spin" : ""}`} />
-                                  </Button>
-                                </>
-                              )}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-                {totalPages > 1 && (
-                  <div className="flex items-center justify-between gap-4 pt-4 border-t mt-4">
-                    <p className="text-sm text-muted-foreground">
-                      Showing {startIndex + 1}-{Math.min(endIndex, filteredAndSortedLinks.length)} of {filteredAndSortedLinks.length} creators
+              <>
+                <div className="mb-4">
+                  <Input
+                    placeholder="Search by creator name or handle..."
+                    value={searchTerm}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value);
+                      setCurrentPage(1);
+                    }}
+                    data-testid="input-creator-search"
+                    className="max-w-sm"
+                  />
+                  {searchTerm && (
+                    <p className="text-xs text-muted-foreground mt-2">
+                      Showing {filteredAndSortedLinks.length} of {campaignLinks.length} creators
                     </p>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                        data-testid="button-prev-page"
-                      >
-                        <ChevronLeft className="h-4 w-4" />
-                        Previous
-                      </Button>
-                      <span className="text-sm text-muted-foreground px-2">
-                        Page {currentPage} of {totalPages}
-                      </span>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                        data-testid="button-next-page"
-                      >
-                        Next
-                        <ChevronRight className="h-4 w-4" />
-                      </Button>
+                  )}
+                </div>
+                <div className="overflow-x-auto">
+                  {filteredAndSortedLinks.length === 0 ? (
+                    <div className="text-center py-12 text-muted-foreground">
+                      {searchTerm
+                        ? `No creators match "${searchTerm}"`
+                        : "No creators match the current filters"}
                     </div>
-                  </div>
-                )}
+                  ) : (
+                    <>
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <SortableHeader
+                              sortKey="creator"
+                              currentSortKey={sortKey}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                            >
+                              Creator
+                            </SortableHeader>
+                            <SortableHeader
+                              sortKey="platform"
+                              currentSortKey={sortKey}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                            >
+                              Platform
+                            </SortableHeader>
+                            <SortableHeader
+                              sortKey="status"
+                              currentSortKey={sortKey}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                            >
+                              Status
+                            </SortableHeader>
+                            <SortableHeader
+                              sortKey="views"
+                              currentSortKey={sortKey}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                              align="right"
+                            >
+                              Views
+                            </SortableHeader>
+                            <SortableHeader
+                              sortKey="likes"
+                              currentSortKey={sortKey}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                              align="right"
+                            >
+                              Likes
+                            </SortableHeader>
+                            <SortableHeader
+                              sortKey="comments"
+                              currentSortKey={sortKey}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                              align="right"
+                            >
+                              Comments
+                            </SortableHeader>
+                            <SortableHeader
+                              sortKey="shares"
+                              currentSortKey={sortKey}
+                              sortDir={sortDir}
+                              onSort={handleSort}
+                              align="right"
+                            >
+                              Shares
+                            </SortableHeader>
+                            <TableHead className="text-right">Actions</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {paginatedLinks.map((link) => {
+                            const isPlaceholder = link.url.startsWith("placeholder://");
+                            const statusOption = POST_STATUS_OPTIONS.find((o) => o.value === link.postStatus) || POST_STATUS_OPTIONS[0];
+
+                            return (
+                              <TableRow key={link.id} data-testid={`row-link-${link.id}`}>
+                                <TableCell>
+                                  <div className="flex items-center gap-2">
+                                    <User className="h-4 w-4 text-muted-foreground" />
+                                    <span className="font-medium">
+                                      {link.creatorName || "Unknown"}
+                                    </span>
+                                  </div>
+                                </TableCell>
+                                <TableCell>
+                                  {isPlaceholder ? (
+                                    <Badge variant="outline" className="text-xs">
+                                      <LinkIcon className="h-3 w-3 mr-1" />
+                                      No link yet
+                                    </Badge>
+                                  ) : (
+                                    <div className="flex items-center gap-2">
+                                      <Badge className={`text-xs ${getPlatformColor(link.platform)}`}>
+                                        {link.platform}
+                                      </Badge>
+                                      <a
+                                        href={link.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-muted-foreground hover:text-foreground"
+                                      >
+                                        <ExternalLink className="h-3 w-3" />
+                                      </a>
+                                    </div>
+                                  )}
+                                </TableCell>
+                                <TableCell>
+                                  <Select
+                                    value={link.postStatus}
+                                    onValueChange={(v) => handleStatusChange(link.id, v as PostStatus)}
+                                  >
+                                    <SelectTrigger
+                                      className={`w-[100px] h-7 text-xs ${statusOption.color}`}
+                                      data-testid={`select-status-${link.id}`}
+                                    >
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      {POST_STATUS_OPTIONS.map((opt) => (
+                                        <SelectItem key={opt.value} value={opt.value}>
+                                          {opt.label}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {isPlaceholder ? "-" : formatNumber(link.views)}
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {isPlaceholder ? "-" : formatNumber(link.likes)}
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {isPlaceholder ? "-" : formatNumber(link.comments)}
+                                </TableCell>
+                                <TableCell className="text-right font-medium">
+                                  {isPlaceholder ? "-" : formatNumber(link.shares)}
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <div className="flex items-center justify-end gap-1">
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      onClick={() => setEditLink(link)}
+                                      data-testid={`button-edit-${link.id}`}
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                    <Button
+                                      size="icon"
+                                      variant="ghost"
+                                      onClick={() => setLinkToDelete(link)}
+                                      data-testid={`button-delete-${link.id}`}
+                                      className="text-destructive hover:text-destructive"
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                    {isPlaceholder ? (
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => setEditLink(link)}
+                                        data-testid={`button-add-url-${link.id}`}
+                                      >
+                                        <LinkIcon className="h-3 w-3 mr-1" />
+                                        Add Link
+                                      </Button>
+                                    ) : (
+                                      <>
+                                        {(() => {
+                                          const scrapeTask = scrapeTasksByLinkId.get(link.id);
+                                          if (scrapeTask) {
+                                            if (scrapeTask.status === "queued") {
+                                              return (
+                                                <Badge variant="outline" className="text-xs" data-testid={`badge-scrape-queued-${link.id}`}>
+                                                  Queued
+                                                </Badge>
+                                              );
+                                            }
+                                            if (scrapeTask.status === "running") {
+                                              return (
+                                                <Badge variant="outline" className="text-xs" data-testid={`badge-scrape-running-${link.id}`}>
+                                                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                                  Scraping
+                                                </Badge>
+                                              );
+                                            }
+                                            if (scrapeTask.status === "failed") {
+                                              return (
+                                                <Badge variant="destructive" className="text-xs" data-testid={`badge-scrape-failed-${link.id}`} title={scrapeTask.lastError || "Scraping failed"}>
+                                                  Failed
+                                                </Badge>
+                                              );
+                                            }
+                                          }
+                                          if (link.status === "scraping") {
+                                            return (
+                                              <Badge variant="outline" className="text-xs">
+                                                <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                                                Scraping
+                                              </Badge>
+                                            );
+                                          }
+                                          if (link.status === "error") {
+                                            return (
+                                              <Badge variant="destructive" className="text-xs" title={link.errorMessage || "Error"}>
+                                                Error
+                                              </Badge>
+                                            );
+                                          }
+                                          return null;
+                                        })()}
+                                        <Button
+                                          size="icon"
+                                          variant="ghost"
+                                          disabled={isRescraping || link.status === "scraping" || !!isBatchScraping}
+                                          onClick={() => rescrape(link.id)}
+                                          data-testid={`button-rescrape-${link.id}`}
+                                        >
+                                          <RefreshCw className={`h-4 w-4 ${isRescraping ? "animate-spin" : ""}`} />
+                                        </Button>
+                                      </>
+                                    )}
+                                  </div>
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                        </TableBody>
+                      </Table>
+                      {totalPages > 1 && (
+                        <div className="flex items-center justify-between gap-4 pt-4 border-t mt-4">
+                          <p className="text-sm text-muted-foreground">
+                            Showing {startIndex + 1}-{Math.min(endIndex, filteredAndSortedLinks.length)} of {filteredAndSortedLinks.length} creators
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                              disabled={currentPage === 1}
+                              data-testid="button-prev-page"
+                            >
+                              <ChevronLeft className="h-4 w-4" />
+                              Previous
+                            </Button>
+                            <span className="text-sm text-muted-foreground px-2">
+                              Page {currentPage} of {totalPages}
+                            </span>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                              disabled={currentPage === totalPages}
+                              data-testid="button-next-page"
+                            >
+                              Next
+                              <ChevronRight className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
               </div>
+              </>
             )}
           </CardContent>
         </Card>

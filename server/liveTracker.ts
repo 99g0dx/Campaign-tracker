@@ -10,9 +10,12 @@ import { normalizeUrl, generatePostKey } from "./urlUtils";
 import pLimit from "p-limit";
 
 const SCRAPE_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
-const MAX_CONCURRENT_SCRAPES = 3;
-const MAX_RETRIES = 2;
+// Configurable via environment variables
+const MAX_CONCURRENT_SCRAPES = parseInt(process.env.SCRAPING_CONCURRENCY || '5', 10);
+const MAX_RETRIES = parseInt(process.env.SCRAPING_MAX_RETRIES || '2', 10);
 const RETRY_DELAYS = [1000, 2000, 4000]; // Exponential backoff
+
+console.log(`[LiveTracker] Configured with concurrency=${MAX_CONCURRENT_SCRAPES}, maxRetries=${MAX_RETRIES}`);
 
 let isTrackerRunning = false;
 let lastTrackingRun: Date | null = null;

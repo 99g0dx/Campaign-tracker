@@ -653,6 +653,35 @@ export async function registerRoutes(
     }
   });
 
+  // Get scraping provider statistics and health
+  app.get("/api/scraping/providers", requireUser, async (_req, res) => {
+    try {
+      const { getProviderManager } = await import('./scrapers/providerManager');
+      const manager = getProviderManager();
+      const stats = manager.getProvidersStats();
+      res.json({
+        providers: stats,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error("Failed to get provider stats:", error);
+      res.status(500).json({ error: "Failed to get provider stats" });
+    }
+  });
+
+  // Reset circuit breakers (admin endpoint)
+  app.post("/api/scraping/providers/reset", requireUser, async (_req, res) => {
+    try {
+      const { getProviderManager } = await import('./scrapers/providerManager');
+      const manager = getProviderManager();
+      manager.resetCircuitBreakers();
+      res.json({ success: true, message: "Circuit breakers reset" });
+    } catch (error) {
+      console.error("Failed to reset circuit breakers:", error);
+      res.status(500).json({ error: "Failed to reset circuit breakers" });
+    }
+  });
+
   // Update social link (post status, creator name, url)
   app.patch("/api/social-links/:id", requireUser, async (req, res) => {
     try {

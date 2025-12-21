@@ -1,3 +1,5 @@
+import { getProviderManager } from './scrapers/providerManager';
+
 interface ScrapedData {
   views: number;
   likes: number;
@@ -423,64 +425,49 @@ async function scrapeFacebook(url: string, postId: string | null): Promise<Scrap
 
 export async function scrapeSocialLink(url: string): Promise<ScrapeResult> {
   const platform = detectPlatform(url);
-  
+
   if (!platform) {
     return {
       success: false,
       error: "Unsupported platform. Supported: TikTok, Instagram, YouTube, Twitter, Facebook",
     };
   }
-  
-  const postId = extractPostId(url, platform);
-  
-  // Determine if result should trigger a retry (temporary failures)
-  const shouldRetryResult = (result: ScrapeResult): boolean => {
-    if (result.success) return false;
-    // Retry on network/server errors, not on permanent errors
-    const permanentErrors = [
-      "not configured",
-      "credit limit",
-      "private or deleted",
-      "authentication required",
-      "requires authentication",
-      "API subscription",
-      "paid API access",
-    ];
-    const errorLower = (result.error || "").toLowerCase();
-    return !permanentErrors.some(err => errorLower.includes(err.toLowerCase()));
-  };
-  
-  switch (platform) {
-    case "TikTok":
-      return withRetry(
-        () => scrapeTikTokWithApify(url, postId),
-        3,
-        1000,
-        shouldRetryResult
-      );
-    case "Instagram":
-      return withRetry(
-        () => scrapeInstagramWithApify(url, postId),
-        3,
-        1000,
-        shouldRetryResult
-      );
-    case "Twitter":
-      return scrapeTwitter(url, postId);
-    case "YouTube":
-      return withRetry(
-        () => scrapeYouTube(url, postId),
-        2,
-        500,
-        shouldRetryResult
-      );
-    case "Facebook":
-      return scrapeFacebook(url, postId);
-    default:
-      return {
-        success: false,
-        error: `Scraping not implemented for ${platform}`,
-      };
+
+  const platformLower = platform.toLowerCase() as 'tiktok' | 'instagram' | 'youtube' | 'twitter' | 'facebook';
+
+  // Special handling for platforms not yet supported by managed providers
+  if (platform === "YouTube") {
+    // Use legacy YouTube scraper (HTML parsing)
+    const postId = extractPostId(url, platform);
+    const shouldRetryResult = (result: ScrapeResult): boolean => {
+      if (result.success) return false;
+      const permanentErrors = ["not configured", "private or deleted", "authentication required"];
+      const errorLower = (result.error || "").toLowerCase();
+      return !permanentErrors.some(err => errorLower.includes(err.toLowerCase()));
+    };
+    return withRetry(() => scrapeYouTube(url, postId), 2, 500, shouldRetryResult);
+  }
+
+  if (platform === "Facebook") {
+    return scrapeFacebook(url, null);
+  }
+
+  // Use new provider system for TikTok, Instagram, Twitter
+  try {
+    const manager = getProviderManager();
+    const result = await manager.scrape(url, platformLower);
+
+    // Add note field for compatibility
+    return {
+      ...result,
+      note: result.success ? `Scraped via ${result.provider}` : undefined,
+    };
+  } catch (error) {
+    console.error(`Failed to scrape ${platform}:`, error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : "Scraping failed",
+    };
   }
 }
 

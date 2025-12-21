@@ -3,12 +3,15 @@ import { storage } from "./storage";
 import { scrapeSocialLink } from "./scraper";
 import type { ScrapeTask } from "@shared/schema";
 
-const CONCURRENCY_LIMIT = 3;
-const MAX_ATTEMPTS = 3;
-const BASE_DELAY_MS = 1000;
+// Configurable via environment variables
+const CONCURRENCY_LIMIT = parseInt(process.env.SCRAPING_CONCURRENCY || '5', 10);
+const MAX_ATTEMPTS = parseInt(process.env.SCRAPING_MAX_RETRIES || '3', 10);
+const BASE_DELAY_MS = parseInt(process.env.SCRAPING_RETRY_DELAY_MS || '1000', 10);
 const POLL_INTERVAL_MS = 2000;
 
 const limit = pLimit(CONCURRENCY_LIMIT);
+
+console.log(`[ScrapeQueue] Configured with concurrency=${CONCURRENCY_LIMIT}, maxRetries=${MAX_ATTEMPTS}, retryDelay=${BASE_DELAY_MS}ms`);
 
 let processingInterval: ReturnType<typeof setInterval> | null = null;
 let isProcessing = false;
