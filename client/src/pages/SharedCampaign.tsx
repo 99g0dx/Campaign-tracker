@@ -159,7 +159,12 @@ export default function SharedCampaign() {
       const params = new URLSearchParams(window.location.search);
       const s = params.get("sort");
       const w = params.get("window");
-      if (s) setSortBy(s);
+      const d = params.get("dir");
+      if (s) {
+        setSortBy(s);
+        const numeric = s === "views" || s === "likes" || s === "comments" || s === "shares";
+        setSortDir(d === "asc" || d === "desc" ? d : (numeric ? "desc" : "asc"));
+      }
       if (w) setSelectedTimeWindow(w);
     } catch (err) {
       // ignore in SSR or invalid URLs
@@ -171,9 +176,20 @@ export default function SharedCampaign() {
   const ALL_STATUSES = ["Pending", "Briefed", "Active", "Done"] as const;
   const [statusFilters, setStatusFilters] = useState<Set<string>>(new Set(ALL_STATUSES));
   const [sortBy, setSortBy] = useState<string>("views");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   const toggleMetric = (metric: keyof typeof visibleMetrics) => {
     setVisibleMetrics(prev => ({ ...prev, [metric]: !prev[metric] }));
+  };
+
+  const handleSort = (key: string) => {
+    const numeric = key === "views" || key === "likes" || key === "comments" || key === "shares";
+    if (sortBy === key) {
+      setSortDir(sortDir === "asc" ? "desc" : "asc");
+    } else {
+      setSortBy(key);
+      setSortDir(numeric ? "desc" : "asc");
+    }
   };
 
   useEffect(() => {
@@ -278,7 +294,11 @@ const matchesStatus = statusFilters.has(canonicalStatus(link.postStatus));
     });
 
     // sort using shared comparator
-    filtered.sort(getComparator(sortBy as any));
+    {
+      const cmp = getComparator(sortBy as any);
+      const defaultDir = (sortBy === "views" || sortBy === "likes" || sortBy === "comments" || sortBy === "shares") ? "desc" : "asc";
+      filtered.sort((a: any, b: any) => (sortDir === defaultDir ? cmp(a, b) : -cmp(a, b)));
+    }
 
     const campaignTotals = computeTotals(includedBase);
     const windowTotals = computeTotals(filtered);
@@ -782,7 +802,7 @@ const matchesStatus = statusFilters.has(canonicalStatus(link.postStatus));
                     </div>
                   </PopoverContent>
                 </Popover>
-                <Select value={sortBy} onValueChange={setSortBy}>
+                <Select value={sortBy} onValueChange={(v) => { setSortBy(v); const numeric = v === "views" || v === "likes" || v === "comments" || v === "shares"; setSortDir(numeric ? "desc" : "asc"); }}>
                   <SelectTrigger className="w-[140px]" data-testid="select-sort-by">
                     <ArrowUpDown className="h-4 w-4 mr-1" />
                     <SelectValue placeholder="Sort by" />
@@ -812,14 +832,28 @@ const matchesStatus = statusFilters.has(canonicalStatus(link.postStatus));
                   <Table>
                     <TableHeader>
                       <TableRow className="bg-muted/50">
-                        <TableHead className="w-[100px]">Platform</TableHead>
-                        <TableHead className="w-[90px]">Status</TableHead>
-                        <TableHead>Creator</TableHead>
+                        <TableHead className="w-[100px] cursor-pointer select-none" onClick={() => handleSort("platform")} data-testid="header-sort-platform">
+                          <div className="flex items-center gap-1">Platform <ArrowUpDown className="h-3 w-3" /></div>
+                        </TableHead>
+                        <TableHead className="w-[90px] cursor-pointer select-none" onClick={() => handleSort("status")} data-testid="header-sort-status">
+                          <div className="flex items-center gap-1">Status <ArrowUpDown className="h-3 w-3" /></div>
+                        </TableHead>
+                        <TableHead className="cursor-pointer select-none" onClick={() => handleSort("creator")} data-testid="header-sort-creator">
+                          <div className="flex items-center gap-1">Creator <ArrowUpDown className="h-3 w-3" /></div>
+                        </TableHead>
                         <TableHead>Post Link</TableHead>
-                        <TableHead className="text-right w-[90px]">Views</TableHead>
-                        <TableHead className="text-right w-[80px]">Likes</TableHead>
-                        <TableHead className="text-right w-[90px]">Comments</TableHead>
-                        <TableHead className="text-right w-[80px]">Shares</TableHead>
+                        <TableHead className="text-right w-[90px] cursor-pointer select-none" onClick={() => handleSort("views")} data-testid="header-sort-views">
+                          <div className="flex items-center justify-end gap-1">Views <ArrowUpDown className="h-3 w-3" /></div>
+                        </TableHead>
+                        <TableHead className="text-right w-[80px] cursor-pointer select-none" onClick={() => handleSort("likes")} data-testid="header-sort-likes">
+                          <div className="flex items-center justify-end gap-1">Likes <ArrowUpDown className="h-3 w-3" /></div>
+                        </TableHead>
+                        <TableHead className="text-right w-[90px] cursor-pointer select-none" onClick={() => handleSort("comments")} data-testid="header-sort-comments">
+                          <div className="flex items-center justify-end gap-1">Comments <ArrowUpDown className="h-3 w-3" /></div>
+                        </TableHead>
+                        <TableHead className="text-right w-[80px] cursor-pointer select-none" onClick={() => handleSort("shares")} data-testid="header-sort-shares">
+                          <div className="flex items-center justify-end gap-1">Shares <ArrowUpDown className="h-3 w-3" /></div>
+                        </TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
