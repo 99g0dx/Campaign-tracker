@@ -69,6 +69,7 @@ import {
   ArrowUp,
   ArrowDown,
   Filter,
+  ArrowUpDown,
 } from "lucide-react";
 import ShareCampaignModal from "@/components/ShareCampaignModal";
 import CsvImportModal from "@/components/CsvImportModal";
@@ -1433,7 +1434,7 @@ export default function CampaignDetail() {
               </div>
             ) : (
               <>
-                <div className="mb-4">
+                <div className="mb-4 flex flex-wrap gap-3 items-center">
                   <Input
                     placeholder="Search by creator name or handle..."
                     value={searchTerm}
@@ -1444,8 +1445,46 @@ export default function CampaignDetail() {
                     data-testid="input-creator-search"
                     className="max-w-sm"
                   />
+                  <div className="flex items-center gap-2">
+                    <Label className="text-sm text-muted-foreground whitespace-nowrap">Sort by:</Label>
+                    <Select
+                      value={sortKey}
+                      onValueChange={(value: SortKey) => {
+                        setSortKey(value);
+                        // Numeric fields default to desc, text fields to asc
+                        const numericFields: SortKey[] = ["views", "likes", "comments", "shares"];
+                        setSortDir(numericFields.includes(value) ? "desc" : "asc");
+                      }}
+                    >
+                      <SelectTrigger className="w-[140px]" data-testid="select-sort-key">
+                        <ArrowUpDown className="h-4 w-4 mr-2" />
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="creator">Creator</SelectItem>
+                        <SelectItem value="platform">Platform</SelectItem>
+                        <SelectItem value="status">Status</SelectItem>
+                        <SelectItem value="views">Views</SelectItem>
+                        <SelectItem value="likes">Likes</SelectItem>
+                        <SelectItem value="comments">Comments</SelectItem>
+                        <SelectItem value="shares">Shares</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      onClick={() => setSortDir(sortDir === "asc" ? "desc" : "asc")}
+                      data-testid="button-toggle-sort-dir"
+                    >
+                      {sortDir === "asc" ? (
+                        <ArrowUp className="h-4 w-4" />
+                      ) : (
+                        <ArrowDown className="h-4 w-4" />
+                      )}
+                    </Button>
+                  </div>
                   {searchTerm && (
-                    <p className="text-xs text-muted-foreground mt-2">
+                    <p className="text-xs text-muted-foreground w-full">
                       Showing {filteredAndSortedLinks.length} of {campaignLinks.length} creators
                     </p>
                   )}

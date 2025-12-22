@@ -73,10 +73,11 @@ export default function CsvImportModal({
       setParseResult(result);
 
       if (result.validCount === 0) {
+        const headerList = result.headers.join(", ");
         const errorMsg =
           mode === "creators"
-            ? "No valid creator rows found. Make sure your CSV has a column like 'Creator', 'Handle', 'Username', or 'Name'."
-            : "No valid post rows found. Make sure your CSV has a column like 'URL' or 'Post URL' with links starting with http.";
+            ? `No valid creator rows found. Your CSV has columns: [${headerList}]. Make sure there's a column like 'Creator', 'Handle', 'Username', or 'Name'.`
+            : `No valid post rows found. Your CSV has columns: [${headerList}]. Make sure there's a column like 'URL' or 'Post URL' with valid links starting with http.`;
         setError(errorMsg);
       }
     } catch (err) {
@@ -91,7 +92,9 @@ export default function CsvImportModal({
       throw new Error("CSV file is empty");
     }
 
-    const headers = lines[0].split(",").map((h) => h.trim().replace(/^"|"$/g, ""));
+    // Parse header row properly using the same CSV parser
+    const headerValues = parseCSVLine(lines[0]);
+    const headers = headerValues.map((h) => h.trim().replace(/^"|"$/g, ""));
     const rows: ParsedRow[] = [];
 
     for (let i = 1; i < lines.length; i++) {
