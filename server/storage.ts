@@ -1,5 +1,5 @@
 import { db } from "./db";
-import { eq, desc, sql, asc, inArray, and, ilike, or } from "drizzle-orm";
+import { eq, desc, sql, asc, inArray, and, ilike, or, isNotNull, not } from "drizzle-orm";
 import {
   campaigns,
   socialLinks,
@@ -9,6 +9,9 @@ import {
   creators,
   scrapeJobs,
   scrapeTasks,
+  workspaces,
+  workspaceMembers,
+  workspaceInvites,
   type Campaign,
   type InsertCampaign,
   type SocialLink,
@@ -28,6 +31,12 @@ import {
   type ScrapeTask,
   type InsertScrapeTask,
   type ScrapeJobWithStats,
+  type Workspace,
+  type InsertWorkspace,
+  type WorkspaceMember,
+  type InsertWorkspaceMember,
+  type WorkspaceInvite,
+  type InsertWorkspaceInvite,
 } from "@shared/schema";
 import { normalizeUrl, generatePostKey, shouldIncludeInMetrics } from "./urlUtils";
 
@@ -104,6 +113,25 @@ export interface IStorage {
   getCampaignMetrics(campaignId: number, days?: number): Promise<CampaignMetrics>;
   getActivePostsForScraping(): Promise<SocialLink[]>;
   updateSocialLinkCanonicalUrl(id: number, canonicalUrl: string, postKey: string): Promise<SocialLink | undefined>;
+  findDuplicatePosts(campaignId: number): Promise<{ postKey: string; count: number; linkIds: number[] }[]>;
+
+  // Workspaces
+  getWorkspace(id: number): Promise<Workspace | undefined>;
+  getWorkspaceByOwnerId(ownerId: string): Promise<Workspace | undefined>;
+  createWorkspace(data: InsertWorkspace): Promise<Workspace>;
+
+  // Workspace members
+  getWorkspaceMember(workspaceId: number, userId: string): Promise<WorkspaceMember | undefined>;
+  getWorkspaceMembers(workspaceId: number): Promise<WorkspaceMember[]>;
+  createWorkspaceMember(data: InsertWorkspaceMember): Promise<WorkspaceMember>;
+  removeWorkspaceMember(id: number): Promise<boolean>;
+
+  // Workspace invites
+  getInviteByTokenHash(tokenHash: string): Promise<WorkspaceInvite | undefined>;
+  getWorkspaceInvites(workspaceId: number): Promise<WorkspaceInvite[]>;
+  createWorkspaceInvite(data: InsertWorkspaceInvite): Promise<WorkspaceInvite>;
+  markInviteAccepted(id: number): Promise<void>;
+  deleteInvite(id: number): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -613,54 +641,55 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Unified campaign metrics - single source of truth for KPI totals and chart
+  // Uses database-driven deduplication to ensure accuracy
   async getCampaignMetrics(campaignId: number, days: number = 30): Promise<CampaignMetrics> {
-    // Get all links for this campaign
-    const links = await this.getSocialLinksByCampaign(campaignId);
-    
-    // Filter and deduplicate posts
-    const uniquePostsMap = new Map<string, SocialLink>();
-    let lastUpdated: Date | null = null;
-    
-    for (const link of links) {
-      // Skip pending posts and placeholder URLs
-      if (!shouldIncludeInMetrics(link)) {
-        continue;
-      }
-      
-      // Generate post key for deduplication
-      const postKey = link.postKey || generatePostKey(link.url, link.platform);
-      
-      // Keep only one entry per unique post (prefer the one with more recent scrape)
-      const existing = uniquePostsMap.get(postKey);
-      if (!existing || 
-          (link.lastScrapedAt && (!existing.lastScrapedAt || link.lastScrapedAt > existing.lastScrapedAt))) {
-        uniquePostsMap.set(postKey, link);
-      }
-      
-      // Track most recent scrape time
-      if (link.lastScrapedAt && (!lastUpdated || link.lastScrapedAt > lastUpdated)) {
-        lastUpdated = link.lastScrapedAt;
+    // Query all posts for this campaign, ordered for deduplication
+    const allLinks = await db
+      .select()
+      .from(socialLinks)
+      .where(
+        and(
+          eq(socialLinks.campaignId, campaignId),
+          // Exclude placeholder posts
+          not(sql`${socialLinks.url} LIKE 'placeholder://%'`),
+          isNotNull(socialLinks.postKey)
+        )
+      )
+      .orderBy(socialLinks.postKey, desc(socialLinks.lastScrapedAt));
+
+    // Deduplicate by postKey, keeping the most recently scraped version
+    const uniquePostsMap = new Map<string, typeof allLinks[0]>();
+    for (const link of allLinks) {
+      if (link.postKey && !uniquePostsMap.has(link.postKey)) {
+        uniquePostsMap.set(link.postKey, link);
       }
     }
-    
+
     const uniquePosts = Array.from(uniquePostsMap.values());
-    const linkIds = uniquePosts.map(l => l.id);
-    
-    // Calculate totals from unique posts' latest metrics (single source of truth)
+
+    // Calculate totals from unique posts only (eliminates double-counting)
     const totals = {
       views: uniquePosts.reduce((sum, l) => sum + (l.views || 0), 0),
       likes: uniquePosts.reduce((sum, l) => sum + (l.likes || 0), 0),
       comments: uniquePosts.reduce((sum, l) => sum + (l.comments || 0), 0),
       shares: uniquePosts.reduce((sum, l) => sum + (l.shares || 0), 0),
     };
-    
-    // Build time series from engagement history with proper as-of calculation
-    const timeSeries = await this.buildTimeSeriesAsOf(linkIds, uniquePosts, days);
-    
+
+    // Find most recent scrape timestamp
+    const lastUpdated = uniquePosts.reduce((latest: Date | null, post) => {
+      if (!post.lastScrapedAt) return latest;
+      if (!latest || post.lastScrapedAt > latest) return post.lastScrapedAt;
+      return latest;
+    }, null);
+
+    // Build time series from engagement history
+    const linkIds = uniquePosts.map(l => l.id);
+    const timeSeries = await this.buildTimeSeriesAsOf(linkIds, uniquePosts as SocialLink[], days);
+
     return {
       totals,
       timeSeries,
-      trackedPostsCount: uniquePosts.length,
+      trackedPostsCount: uniquePosts.length,  // Count of unique posts used in totals
       lastUpdatedAt: lastUpdated?.toISOString() || null,
     };
   }
@@ -774,6 +803,143 @@ export class DatabaseStorage implements IStorage {
     }
     
     return timeSeries;
+  }
+
+  // ============================================================================
+  // DUPLICATE DETECTION
+  // ============================================================================
+  async findDuplicatePosts(campaignId: number): Promise<{ postKey: string; count: number; linkIds: number[] }[]> {
+    const result = await db
+      .select({
+        postKey: socialLinks.postKey,
+      })
+      .from(socialLinks)
+      .where(
+        and(
+          eq(socialLinks.campaignId, campaignId),
+          isNotNull(socialLinks.postKey)
+        )
+      )
+      .groupBy(socialLinks.postKey);
+
+    const duplicates: { postKey: string; count: number; linkIds: number[] }[] = [];
+
+    for (const row of result) {
+      if (!row.postKey) continue;
+
+      const links = await db
+        .select({ id: socialLinks.id })
+        .from(socialLinks)
+        .where(
+          and(
+            eq(socialLinks.campaignId, campaignId),
+            eq(socialLinks.postKey, row.postKey)
+          )
+        );
+
+      if (links.length > 1) {
+        duplicates.push({
+          postKey: row.postKey,
+          count: links.length,
+          linkIds: links.map(l => l.id),
+        });
+      }
+    }
+
+    return duplicates;
+  }
+
+  // ============================================================================
+  // WORKSPACE OPERATIONS
+  // ============================================================================
+  async getWorkspace(id: number): Promise<Workspace | undefined> {
+    const [workspace] = await db.select().from(workspaces).where(eq(workspaces.id, id));
+    return workspace;
+  }
+
+  async getWorkspaceByOwnerId(ownerId: string): Promise<Workspace | undefined> {
+    const [workspace] = await db.select().from(workspaces).where(eq(workspaces.ownerId, ownerId));
+    return workspace;
+  }
+
+  async createWorkspace(data: InsertWorkspace): Promise<Workspace> {
+    const [workspace] = await db.insert(workspaces).values(data).returning();
+    return workspace;
+  }
+
+  // ============================================================================
+  // WORKSPACE MEMBERS
+  // ============================================================================
+  async getWorkspaceMember(workspaceId: number, userId: string): Promise<WorkspaceMember | undefined> {
+    const [member] = await db
+      .select()
+      .from(workspaceMembers)
+      .where(
+        and(
+          eq(workspaceMembers.workspaceId, workspaceId),
+          eq(workspaceMembers.userId, userId)
+        )
+      );
+    return member;
+  }
+
+  async getWorkspaceMembers(workspaceId: number): Promise<WorkspaceMember[]> {
+    return await db
+      .select()
+      .from(workspaceMembers)
+      .where(eq(workspaceMembers.workspaceId, workspaceId))
+      .orderBy(desc(workspaceMembers.createdAt));
+  }
+
+  async createWorkspaceMember(data: InsertWorkspaceMember): Promise<WorkspaceMember> {
+    const [member] = await db.insert(workspaceMembers).values(data).returning();
+    return member;
+  }
+
+  async removeWorkspaceMember(id: number): Promise<boolean> {
+    const deleted = await db.delete(workspaceMembers).where(eq(workspaceMembers.id, id)).returning();
+    return deleted.length > 0;
+  }
+
+  // ============================================================================
+  // WORKSPACE INVITES
+  // ============================================================================
+  async getInviteByTokenHash(tokenHash: string): Promise<WorkspaceInvite | undefined> {
+    const [invite] = await db
+      .select()
+      .from(workspaceInvites)
+      .where(eq(workspaceInvites.tokenHash, tokenHash));
+    return invite;
+  }
+
+  async getWorkspaceInvites(workspaceId: number): Promise<WorkspaceInvite[]> {
+    return await db
+      .select()
+      .from(workspaceInvites)
+      .where(
+        and(
+          eq(workspaceInvites.workspaceId, workspaceId),
+          sql`${workspaceInvites.acceptedAt} IS NULL`
+        )
+      )
+      .orderBy(desc(workspaceInvites.createdAt));
+  }
+
+  async createWorkspaceInvite(data: InsertWorkspaceInvite): Promise<WorkspaceInvite> {
+    const [invite] = await db.insert(workspaceInvites).values(data).returning();
+    return invite;
+  }
+
+  async markInviteAccepted(id: number): Promise<void> {
+    await db
+      .update(workspaceInvites)
+      .set({ acceptedAt: new Date() })
+      .where(eq(workspaceInvites.id, id));
+  }
+
+  async deleteInvite(id: number): Promise<boolean> {
+    const deleted = await db.delete(workspaceInvites).where(eq(workspaceInvites.id, id)).returning();
+    return deleted.length > 0;
   }
 
 }

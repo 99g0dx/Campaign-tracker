@@ -168,6 +168,62 @@ export const insertTeamMemberSchema = createInsertSchema(teamMembers).omit({
 export type InsertTeamMember = z.infer<typeof insertTeamMemberSchema>;
 export type TeamMember = typeof teamMembers.$inferSelect;
 
+// Workspaces - organizational units for collaboration
+export const workspaces = pgTable("workspaces", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  ownerId: text("owner_id").notNull(),  // FK to users.id
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertWorkspaceSchema = createInsertSchema(workspaces).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertWorkspace = z.infer<typeof insertWorkspaceSchema>;
+export type Workspace = typeof workspaces.$inferSelect;
+
+// Workspace members - users who have access to a workspace
+export const workspaceMembers = pgTable("workspace_members", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  userId: text("user_id").notNull(),  // FK to users.id
+  role: text("role").notNull(),  // "owner", "admin", "manager", "viewer"
+  status: text("status").notNull().default("active"),  // "active", "pending"
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertWorkspaceMemberSchema = createInsertSchema(workspaceMembers).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertWorkspaceMember = z.infer<typeof insertWorkspaceMemberSchema>;
+export type WorkspaceMember = typeof workspaceMembers.$inferSelect;
+
+// Workspace invites - pending invitations to join a workspace
+export const workspaceInvites = pgTable("workspace_invites", {
+  id: serial("id").primaryKey(),
+  workspaceId: integer("workspace_id").references(() => workspaces.id, { onDelete: "cascade" }).notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull(),  // role to assign when accepted
+  token: text("token").notNull().unique(),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  invitedByUserId: text("invited_by_user_id").notNull(),
+  acceptedAt: timestamp("accepted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const insertWorkspaceInviteSchema = createInsertSchema(workspaceInvites).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type InsertWorkspaceInvite = z.infer<typeof insertWorkspaceInviteSchema>;
+export type WorkspaceInvite = typeof workspaceInvites.$inferSelect;
+
 // Creators database for searchable creator lookup
 export const creators = pgTable("creators", {
   id: serial("id").primaryKey(),
