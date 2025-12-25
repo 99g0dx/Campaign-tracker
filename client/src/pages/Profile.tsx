@@ -23,9 +23,27 @@ type TeamMember = {
   createdAt: string | null;
 };
 
+type Workspace = {
+  id: number;
+  name: string;
+  ownerId: string;
+  createdAt: string;
+};
+
 function useTeamMembers() {
   return useQuery<TeamMember[]>({
     queryKey: ["/api/team-members"],
+  });
+}
+
+function useMyWorkspace() {
+  return useQuery<Workspace>({
+    queryKey: ["/api/workspaces/my-workspace"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/workspaces/my-workspace");
+      if (!res.ok) throw new Error("Failed to fetch workspace");
+      return res.json();
+    },
   });
 }
 
@@ -74,6 +92,7 @@ function useRemoveTeamMember() {
 export default function Profile() {
   const { user, isLoading: authLoading } = useAuth();
   const { data: teamMembers = [], isLoading: membersLoading } = useTeamMembers();
+  const { data: workspace, isLoading: workspaceLoading } = useMyWorkspace();
   const addMember = useAddTeamMember();
   const removeMember = useRemoveTeamMember();
   const { toast } = useToast();
@@ -517,8 +536,8 @@ export default function Profile() {
           </CardContent>
         </Card>
 
-        {/* Workspace Invitations - Hardcoded workspace ID for now */}
-        <WorkspaceInvites workspaceId={1} />
+        {/* Workspace Invitations - Dynamic workspace ID */}
+        {workspace && <WorkspaceInvites workspaceId={workspace.id} />}
       </div>
     </div>
   );

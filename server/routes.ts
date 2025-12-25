@@ -1400,6 +1400,47 @@ export async function registerRoutes(
 
   // ==================== WORKSPACE INVITE ROUTES ====================
 
+  // Get or create user's workspace
+  app.get("/api/workspaces/my-workspace", requireUser, async (req: any, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      // Try to find existing workspace owned by user
+      let workspace = await storage.getWorkspaceByOwnerId(userId);
+
+      // If no workspace exists, create one
+      if (!workspace) {
+        const user = await storage.getUserById(userId);
+        const workspaceName = user?.username
+          ? `${user.username}'s Workspace`
+          : user?.email
+          ? `${user.email.split('@')[0]}'s Workspace`
+          : "My Workspace";
+
+        workspace = await storage.createWorkspace({
+          name: workspaceName,
+          ownerId: userId,
+        });
+
+        // Add user as workspace owner
+        await storage.createWorkspaceMember({
+          workspaceId: workspace.id,
+          userId: userId,
+          role: "owner",
+          status: "active",
+        });
+      }
+
+      res.json(workspace);
+    } catch (error) {
+      console.error("Failed to get/create workspace:", error);
+      res.status(500).json({ error: "Failed to get workspace" });
+    }
+  });
+
   // Create workspace invite and send email
   app.post("/api/workspaces/:workspaceId/invite", requireUser, async (req: any, res) => {
     try {
