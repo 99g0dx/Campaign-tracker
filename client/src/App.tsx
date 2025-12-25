@@ -14,6 +14,7 @@ import Profile from "@/pages/Profile";
 import SharedCampaign from "@/pages/SharedCampaign";
 import ForgotPassword from "@/pages/ForgotPassword";
 import ResetPassword from "@/pages/ResetPassword";
+import InviteAccept from "@/pages/InviteAccept";
 import NotFound from "@/pages/not-found";
 import { Loader2 } from "lucide-react";
 
@@ -34,6 +35,7 @@ function Router() {
         <Route path="/" component={Landing} />
         <Route path="/login" component={Login} />
         <Route path="/signup" component={Signup} />
+        <Route path="/invite" component={InviteAccept} />
         <Route path="/share/:slug" component={SharedCampaign} />
         <Route path="/forgot-password" component={ForgotPassword} />
         <Route path="/reset-password" component={ResetPassword} />
@@ -57,6 +59,7 @@ function Router() {
       <Route path="/dashboard" component={Dashboard} />
       <Route path="/campaign/:id" component={CampaignDetail} />
       <Route path="/profile" component={Profile} />
+      <Route path="/invite" component={InviteAccept} />
       <Route path="/share/:slug" component={SharedCampaign} />
       <Route path="/login">{() => <Redirect to="/" />}</Route>
       <Route path="/signup">{() => <Redirect to="/" />}</Route>

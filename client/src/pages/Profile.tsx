@@ -12,6 +12,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { User, Mail, Phone, Users, Plus, Trash2, Loader2, CheckCircle, ArrowLeft, Lock, Eye, EyeOff } from "lucide-react";
 import { Link } from "wouter";
+import { WorkspaceInvites } from "@/components/WorkspaceInvites";
 
 type TeamMember = {
   id: number;
@@ -515,6 +516,9 @@ export default function Profile() {
             )}
           </CardContent>
         </Card>
+
+        {/* Workspace Invitations - Hardcoded workspace ID for now */}
+        <WorkspaceInvites workspaceId={1} />
       </div>
     </div>
   );

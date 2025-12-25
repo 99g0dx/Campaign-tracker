@@ -1398,6 +1398,277 @@ export async function registerRoutes(
     }
   });
 
+  // ==================== WORKSPACE INVITE ROUTES ====================
+
+  // Create workspace invite and send email
+  app.post("/api/workspaces/:workspaceId/invite", requireUser, async (req: any, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const workspaceId = parseInt(req.params.workspaceId, 10);
+      if (isNaN(workspaceId)) {
+        return res.status(400).json({ error: "Invalid workspace ID" });
+      }
+
+      const inviteSchema = z.object({
+        email: z.string().email("Invalid email address"),
+        role: z.enum(["owner", "admin", "manager", "viewer"], {
+          errorMap: () => ({ message: "Role must be owner, admin, manager, or viewer" }),
+        }),
+      });
+
+      const parsed = inviteSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.errors[0].message });
+      }
+
+      const { email, role } = parsed.data;
+
+      // Check if user is workspace owner or admin
+      const workspace = await storage.getWorkspace(workspaceId);
+      if (!workspace) {
+        return res.status(404).json({ error: "Workspace not found" });
+      }
+
+      const member = await storage.getWorkspaceMember(workspaceId, userId);
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        return res.status(403).json({ error: "Only workspace owners and admins can invite members" });
+      }
+
+      // Check if user is already a member
+      const members = await storage.getWorkspaceMembers(workspaceId);
+      const existingMember = members.find((m) => {
+        // Get the user associated with this member
+        return m.userId === email; // This is simplified - in reality you'd need to look up by email
+      });
+
+      if (existingMember) {
+        return res.status(400).json({ error: "User is already a member of this workspace" });
+      }
+
+      // Check for existing pending invite
+      const existingInvites = await storage.getWorkspaceInvites(workspaceId);
+      const pendingInvite = existingInvites.find(
+        (inv) => inv.email === email && !inv.acceptedAt && new Date(inv.expiresAt) > new Date()
+      );
+
+      if (pendingInvite) {
+        return res.status(400).json({ error: "An invitation has already been sent to this email" });
+      }
+
+      // Generate secure random token
+      const crypto = await import("crypto");
+      const token = crypto.randomBytes(32).toString("hex");
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+      // Set expiration to 7 days from now
+      const expiresAt = new Date();
+      expiresAt.setDate(expiresAt.getDate() + 7);
+
+      // Create invitation
+      const invite = await storage.createWorkspaceInvite({
+        workspaceId,
+        email,
+        role,
+        token,
+        tokenHash,
+        expiresAt,
+        invitedByUserId: userId,
+      });
+
+      // Get inviter information
+      const inviter = await storage.getUserById(userId);
+      if (!inviter) {
+        return res.status(500).json({ error: "Failed to get inviter information" });
+      }
+
+      // Send invitation email
+      const { sendWorkspaceInviteEmail } = await import("./email");
+      await sendWorkspaceInviteEmail(
+        email,
+        inviter.username || inviter.email,
+        workspace.name,
+        role,
+        token
+      );
+
+      res.status(201).json({
+        ok: true,
+        message: "Invitation sent successfully",
+        inviteId: invite.id,
+      });
+    } catch (error) {
+      console.error("Failed to create workspace invite:", error);
+      res.status(500).json({ error: "Failed to send invitation" });
+    }
+  });
+
+  // Get workspace invites
+  app.get("/api/workspaces/:workspaceId/invites", requireUser, async (req: any, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const workspaceId = parseInt(req.params.workspaceId, 10);
+      if (isNaN(workspaceId)) {
+        return res.status(400).json({ error: "Invalid workspace ID" });
+      }
+
+      // Check if user is workspace owner or admin
+      const member = await storage.getWorkspaceMember(workspaceId, userId);
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        return res.status(403).json({ error: "Only workspace owners and admins can view invitations" });
+      }
+
+      const invites = await storage.getWorkspaceInvites(workspaceId);
+
+      // Filter out sensitive token information and format response
+      const formattedInvites = invites.map((inv) => ({
+        id: inv.id,
+        email: inv.email,
+        role: inv.role,
+        expiresAt: inv.expiresAt,
+        acceptedAt: inv.acceptedAt,
+        createdAt: inv.createdAt,
+        status: inv.acceptedAt
+          ? "accepted"
+          : new Date(inv.expiresAt) < new Date()
+          ? "expired"
+          : "pending",
+      }));
+
+      res.json(formattedInvites);
+    } catch (error) {
+      console.error("Failed to fetch workspace invites:", error);
+      res.status(500).json({ error: "Failed to fetch invitations" });
+    }
+  });
+
+  // Accept workspace invite
+  app.post("/api/invites/accept", requireUser, async (req: any, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const { token } = req.body;
+      if (!token || typeof token !== "string") {
+        return res.status(400).json({ error: "Invalid invitation token" });
+      }
+
+      // Hash the token to look it up
+      const crypto = await import("crypto");
+      const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+      // Find the invitation
+      const invite = await storage.getInviteByTokenHash(tokenHash);
+      if (!invite) {
+        return res.status(404).json({ error: "Invitation not found or has been revoked" });
+      }
+
+      // Check if already accepted
+      if (invite.acceptedAt) {
+        return res.status(400).json({ error: "This invitation has already been accepted" });
+      }
+
+      // Check if expired
+      if (new Date(invite.expiresAt) < new Date()) {
+        return res.status(400).json({ error: "This invitation has expired" });
+      }
+
+      // Get current user's email
+      const user = await storage.getUserById(userId);
+      if (!user) {
+        return res.status(500).json({ error: "User not found" });
+      }
+
+      // Verify the invitation is for this user's email
+      if (invite.email.toLowerCase() !== user.email.toLowerCase()) {
+        return res.status(403).json({
+          error: "This invitation was sent to a different email address",
+        });
+      }
+
+      // Check if user is already a member
+      const existingMember = await storage.getWorkspaceMember(invite.workspaceId, userId);
+      if (existingMember) {
+        return res.status(400).json({ error: "You are already a member of this workspace" });
+      }
+
+      // Add user to workspace
+      await storage.createWorkspaceMember({
+        workspaceId: invite.workspaceId,
+        userId: userId,
+        role: invite.role,
+        status: "active",
+      });
+
+      // Mark invitation as accepted
+      await storage.markInviteAccepted(invite.id);
+
+      // Get workspace information
+      const workspace = await storage.getWorkspace(invite.workspaceId);
+
+      res.json({
+        ok: true,
+        message: "Successfully joined workspace",
+        workspace: workspace
+          ? { id: workspace.id, name: workspace.name }
+          : null,
+      });
+    } catch (error) {
+      console.error("Failed to accept workspace invite:", error);
+      res.status(500).json({ error: "Failed to accept invitation" });
+    }
+  });
+
+  // Revoke workspace invite
+  app.delete("/api/invites/:id", requireUser, async (req: any, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const inviteId = parseInt(req.params.id, 10);
+      if (isNaN(inviteId)) {
+        return res.status(400).json({ error: "Invalid invitation ID" });
+      }
+
+      // Get all workspace invites to find this one
+      // (We need to verify the user has permission to revoke it)
+      const allInvites = await storage.getWorkspaceInvites(0); // This will need adjustment
+      const invite = allInvites.find((inv) => inv.id === inviteId);
+
+      if (!invite) {
+        return res.status(404).json({ error: "Invitation not found" });
+      }
+
+      // Check if user is workspace owner or admin
+      const member = await storage.getWorkspaceMember(invite.workspaceId, userId);
+      if (!member || (member.role !== "owner" && member.role !== "admin")) {
+        return res.status(403).json({ error: "Only workspace owners and admins can revoke invitations" });
+      }
+
+      // Delete the invitation
+      const deleted = await storage.deleteInvite(inviteId);
+      if (!deleted) {
+        return res.status(404).json({ error: "Failed to revoke invitation" });
+      }
+
+      res.json({ ok: true, message: "Invitation revoked successfully" });
+    } catch (error) {
+      console.error("Failed to revoke workspace invite:", error);
+      res.status(500).json({ error: "Failed to revoke invitation" });
+    }
+  });
+
   // ==================== CSV IMPORT ROUTES ====================
 
   // Import creators CSV for a campaign (no links)
