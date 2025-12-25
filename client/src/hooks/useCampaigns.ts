@@ -140,6 +140,28 @@ export function useDeleteSocialLink() {
       const response = await apiRequest("DELETE", `/api/social-links/${id}`);
       return response.json();
     },
+    onMutate: async (deletedId: number) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: ["/api/social-links"] });
+
+      // Snapshot the previous value
+      const previousLinks = queryClient.getQueryData(["/api/social-links"]);
+
+      // Optimistically update to remove the deleted link
+      queryClient.setQueryData(["/api/social-links"], (old: any) => {
+        if (!old) return old;
+        return old.filter((link: any) => link.id !== deletedId);
+      });
+
+      // Return context with the snapshot
+      return { previousLinks };
+    },
+    onError: (err, deletedId, context: any) => {
+      // Rollback on error
+      if (context?.previousLinks) {
+        queryClient.setQueryData(["/api/social-links"], context.previousLinks);
+      }
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/social-links"] });
       queryClient.invalidateQueries({ queryKey: ["/api/campaigns"] });

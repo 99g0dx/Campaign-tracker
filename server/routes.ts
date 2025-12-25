@@ -223,26 +223,37 @@ export async function registerRoutes(
       // Get all social links from original campaign
       const originalLinks = await storage.getSocialLinksByCampaign(id);
 
-      // Copy only the creator entries (placeholder links with creator names)
-      // Filter for links that are placeholders or have creator names
-      const creatorLinks = originalLinks.filter(link =>
-        link.creatorName && link.creatorName.trim() !== ""
-      );
+      // Get unique creators (deduplicate by creator name and platform)
+      const uniqueCreatorsMap = new Map<string, { creatorName: string; platform: string }>();
+      for (const link of originalLinks) {
+        if (link.creatorName && link.creatorName.trim() !== "") {
+          const key = `${link.creatorName.trim()}-${link.platform}`;
+          if (!uniqueCreatorsMap.has(key)) {
+            uniqueCreatorsMap.set(key, {
+              creatorName: link.creatorName.trim(),
+              platform: link.platform,
+            });
+          }
+        }
+      }
 
-      // Create placeholder links for each creator in the new campaign
-      for (const link of creatorLinks) {
+      const uniqueCreators = Array.from(uniqueCreatorsMap.values());
+
+      // Create placeholder links for each unique creator in the new campaign
+      // All start with status "pending" and zero metrics
+      for (const creator of uniqueCreators) {
         await storage.createSocialLink({
           campaignId: newCampaign.id,
-          url: `placeholder://${newCampaign.id}/${Date.now()}/${Math.random()}`,
-          platform: "Unknown",
-          creatorName: link.creatorName,
-          postStatus: "pending", // Reset all to pending
+          url: `placeholder://${newCampaign.id}/${creator.creatorName.replace(/[^a-zA-Z0-9]/g, "")}/${Date.now()}`,
+          platform: creator.platform,
+          creatorName: creator.creatorName,
+          postStatus: "pending", // All creators start as pending
         });
       }
 
       res.status(201).json({
         ...newCampaign,
-        copiedCreatorsCount: creatorLinks.length,
+        copiedCreatorsCount: uniqueCreators.length,
       });
     } catch (error) {
       console.error("Failed to duplicate campaign:", error);
@@ -345,12 +356,14 @@ export async function registerRoutes(
       }
 
       // Create the social link entry
+      // Auto-set status to "active" if this is a real post link (not placeholder)
+      const defaultPostStatus = isPlaceholder ? "pending" : "active";
       const linkData = {
         url,
         platform,
         campaignId,
         creatorName: creatorName || null,
-        postStatus: postStatus || "pending" as const,
+        postStatus: postStatus || defaultPostStatus,
         views: 0,
         likes: 0,
         comments: 0,
@@ -721,18 +734,26 @@ export async function registerRoutes(
       if (isNewUrl) {
         const platform = getPlatformFromUrl(url);
         if (platform === "Unknown") {
-          return res.status(400).json({ 
-            error: "Unsupported platform. Supported: TikTok, Instagram, YouTube, Twitter, Facebook" 
+          return res.status(400).json({
+            error: "Unsupported platform. Supported: TikTok, Instagram, YouTube, Twitter, Facebook"
           });
         }
-        
+
         // Update with new URL and platform, set to scraping
-        await storage.updateSocialLink(id, { 
-          ...otherUpdates, 
-          url, 
-          platform, 
-          status: "scraping" 
-        });
+        // Auto-set postStatus to "active" when adding a real URL (if currently pending)
+        const updates: any = {
+          ...otherUpdates,
+          url,
+          platform,
+          status: "scraping"
+        };
+
+        // If converting from placeholder to real URL and status is pending, set to active
+        if (link.url.startsWith("placeholder://") && link.postStatus === "pending") {
+          updates.postStatus = "active";
+        }
+
+        await storage.updateSocialLink(id, updates);
         
         // Start scraping in background
         scrapeSocialLink(url).then(async (result) => {
@@ -1379,6 +1400,122 @@ export async function registerRoutes(
 
   // ==================== CSV IMPORT ROUTES ====================
 
+  // Import creators CSV for a campaign (no links)
+  // Creates social link entries with status "pending" for each creator
+  app.post("/api/campaigns/:id/import-creators-csv", requireUser, async (req: any, res) => {
+    try {
+      const userId = getSessionUserId(req);
+      if (!userId) {
+        return res.status(401).json({ error: "Not authenticated" });
+      }
+
+      const campaignId = parseInt(req.params.id, 10);
+      if (isNaN(campaignId)) {
+        return res.status(400).json({ error: "Invalid campaign ID" });
+      }
+
+      const campaign = await storage.getCampaignForOwner(campaignId, userId);
+      if (!campaign) {
+        return res.status(404).json({ error: "Campaign not found" });
+      }
+
+      // Parse request body
+      const { rows } = req.body;
+      if (!Array.isArray(rows)) {
+        return res.status(400).json({ error: "Invalid request: rows must be an array" });
+      }
+
+      // Validation schema for creator rows
+      const creatorRowSchema = z.object({
+        handle: z.string().min(1),
+        platform: z.string().optional(),
+        posts_promised: z.number().optional(),
+      });
+
+      let added = 0;
+      let skipped = 0;
+      const errors: string[] = [];
+      const seen = new Set<string>();
+
+      // Process each row
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        try {
+          // Validate row
+          const validationResult = creatorRowSchema.safeParse(row);
+          if (!validationResult.success) {
+            skipped++;
+            errors.push(`Row ${i + 1}: Invalid data - ${validationResult.error.message}`);
+            continue;
+          }
+
+          const { handle, platform, posts_promised } = validationResult.data;
+
+          // Normalize handle
+          const normalizedHandle = handle.trim().toLowerCase();
+          if (!normalizedHandle) {
+            skipped++;
+            errors.push(`Row ${i + 1}: Handle is empty`);
+            continue;
+          }
+
+          // Deduplication key: handle + platform or just handle
+          const dedupeKey = platform
+            ? `${normalizedHandle}:${platform.toLowerCase()}`
+            : normalizedHandle;
+
+          if (seen.has(dedupeKey)) {
+            skipped++;
+            continue;
+          }
+          seen.add(dedupeKey);
+
+          // Check if creator already exists in this campaign
+          const existingLinks = await storage.getSocialLinksByCampaign(campaignId);
+          const alreadyExists = existingLinks.some((link) => {
+            const existingNormalized = (link.creatorName || "").trim().toLowerCase();
+            const platformMatch = platform
+              ? (link.platform || "").toLowerCase() === platform.toLowerCase()
+              : true;
+            return existingNormalized === normalizedHandle && platformMatch;
+          });
+
+          if (alreadyExists) {
+            skipped++;
+            continue;
+          }
+
+          // Create placeholder social link with "pending" status
+          const placeholderUrl = `placeholder://${campaignId}/${Date.now()}/${Math.random()}`;
+
+          await storage.createSocialLink({
+            campaignId,
+            url: placeholderUrl,
+            platform: platform || "unknown",
+            creatorName: handle,
+            postStatus: "pending",
+          });
+
+          added++;
+        } catch (err) {
+          skipped++;
+          errors.push(
+            `Row ${i + 1}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+
+      res.json({
+        added,
+        skipped,
+        errors: errors.slice(0, 10), // Return first 10 errors only
+      });
+    } catch (error) {
+      console.error("Failed to import creators CSV:", error);
+      res.status(500).json({ error: "Failed to import creators CSV" });
+    }
+  });
+
   // Import posts from CSV for a campaign (verify ownership)
   // New flexible CSV import with two modes: creators and posts
   app.post("/api/campaigns/:id/import-csv", requireUser, async (req: any, res) => {
@@ -1483,8 +1620,27 @@ export async function registerRoutes(
           }
         }
       } else {
-        // Import posts mode
+        // Import posts mode with creator matching
         const seen = new Set<string>();
+
+        // Load all existing creators (social links) for this campaign
+        const existingLinks = await storage.getSocialLinksByCampaign(campaignId);
+
+        // Build a map of existing creators by normalized handle + platform
+        const creatorMap = new Map<string, typeof existingLinks[0]>();
+        for (const link of existingLinks) {
+          if (link.creatorName) {
+            const { normalizeHandle, createCreatorKey } = await import("./handleUtils");
+            const key = createCreatorKey(campaignId, link.creatorName, link.platform);
+            // Only map placeholder URLs (creators without posts yet)
+            if (link.url.startsWith("placeholder://")) {
+              creatorMap.set(key, link);
+            }
+          }
+        }
+
+        let matched = 0;
+        let created = 0;
 
         for (const row of rows) {
           try {
@@ -1494,7 +1650,7 @@ export async function registerRoutes(
               continue;
             }
 
-            // Deduplicate by URL
+            // Deduplicate by URL within this import
             if (seen.has(url)) {
               duplicates++;
               continue;
@@ -1502,27 +1658,94 @@ export async function registerRoutes(
             seen.add(url);
 
             const platform = row.platform || getPlatformFromUrl(url);
-            const creatorName = row.creatorName || "Unknown";
+            let creatorName = row.creatorName?.trim();
+            let matchedCreator: typeof existingLinks[0] | undefined;
 
-            await storage.createSocialLink({
-              campaignId,
-              url,
-              platform,
-              creatorName,
-              postStatus: "pending",
-              views: row.views || 0,
-              likes: row.likes || 0,
-              comments: row.comments || 0,
-              shares: row.shares || 0,
-            });
+            // Import utility functions
+            const { normalizeHandle, extractHandleFromUrl, createCreatorKey } = await import("./handleUtils");
 
-            imported++;
+            // Try to match with existing creator
+            if (creatorName) {
+              // Rule 1: Exact match on normalized handle from CSV
+              const key = createCreatorKey(campaignId, creatorName, platform);
+              matchedCreator = creatorMap.get(key);
+
+              // Also try without platform constraint
+              if (!matchedCreator) {
+                const keyNoPlatform = createCreatorKey(campaignId, creatorName);
+                matchedCreator = creatorMap.get(keyNoPlatform);
+              }
+            }
+
+            // Rule 2: If no creator column, try to infer from URL
+            if (!matchedCreator && !creatorName) {
+              const inferredHandle = extractHandleFromUrl(url, platform);
+              if (inferredHandle) {
+                const key = createCreatorKey(campaignId, inferredHandle, platform);
+                matchedCreator = creatorMap.get(key);
+
+                if (!matchedCreator) {
+                  const keyNoPlatform = createCreatorKey(campaignId, inferredHandle);
+                  matchedCreator = creatorMap.get(keyNoPlatform);
+                }
+
+                // Use inferred handle as creator name
+                if (!creatorName) {
+                  creatorName = inferredHandle;
+                }
+              }
+            }
+
+            // If matched, update the placeholder with real URL and set status to active
+            if (matchedCreator) {
+              await storage.updateSocialLink(matchedCreator.id, {
+                url,
+                platform,
+                postStatus: "active", // Auto-activate when real post is added
+                views: row.views || 0,
+                likes: row.likes || 0,
+                comments: row.comments || 0,
+                shares: row.shares || 0,
+              });
+              matched++;
+              imported++;
+
+              // Remove from map so it can't be matched again
+              const key = createCreatorKey(campaignId, matchedCreator.creatorName!, matchedCreator.platform);
+              creatorMap.delete(key);
+            } else {
+              // Rule 3: Create new creator entry as fallback
+              await storage.createSocialLink({
+                campaignId,
+                url,
+                platform,
+                creatorName: creatorName || "Unknown",
+                postStatus: "active", // New posts with real URLs start as active
+                views: row.views || 0,
+                likes: row.likes || 0,
+                comments: row.comments || 0,
+                shares: row.shares || 0,
+              });
+              created++;
+              imported++;
+            }
           } catch (err) {
             console.error("Error importing post:", err);
             skipped++;
-            errors.push(`Failed to import ${row.url || "unknown"}`);
+            errors.push(`Failed to import ${row.url || "unknown"}: ${err instanceof Error ? err.message : String(err)}`);
           }
         }
+
+        // Add summary info to response
+        res.json({
+          imported,
+          skipped,
+          duplicates,
+          matched,
+          created,
+          errors: errors.slice(0, 10),
+        });
+        return;
       }
 
       res.json({
@@ -1570,33 +1793,104 @@ export async function registerRoutes(
         status?: string;
       }>;
 
-      const validStatuses = new Set(postStatusOptions);
-      const links = records
-        .filter((r) => r.creator_name || r.url)
-        .map((r) => {
-          const url = r.url?.trim() || `placeholder://${Date.now()}-${Math.random()}`;
-          const platform = url.startsWith("placeholder://") ? "Unknown" : getPlatformFromUrl(url);
-          const rawStatus = r.status?.toLowerCase()?.trim() || "pending";
-          const postStatus = validStatuses.has(rawStatus as any) ? rawStatus : "pending";
-          return {
-            campaignId,
-            url,
-            platform,
-            creatorName: r.creator_name?.trim() || r.handle?.trim() || null,
-            postStatus: postStatus as "pending" | "briefed" | "active" | "done",
-            views: 0,
-            likes: 0,
-            comments: 0,
-            shares: 0,
-          };
-        });
+      // Load existing creators for matching
+      const existingLinks = await storage.getSocialLinksByCampaign(campaignId);
+      const { normalizeHandle, extractHandleFromUrl, createCreatorKey } = await import("./handleUtils");
 
-      if (!links.length) {
-        return res.status(400).json({ error: "No valid rows found in CSV file" });
+      // Build creator map
+      const creatorMap = new Map<string, typeof existingLinks[0]>();
+      for (const link of existingLinks) {
+        if (link.creatorName && link.url.startsWith("placeholder://")) {
+          const key = createCreatorKey(campaignId, link.creatorName, link.platform);
+          creatorMap.set(key, link);
+        }
       }
 
-      const inserted = await storage.createSocialLinksBulk(links);
-      res.json({ ok: true, inserted });
+      const validStatuses = new Set(postStatusOptions);
+      let matched = 0;
+      let created = 0;
+
+      for (const record of records) {
+        if (!record.creator_name && !record.url) continue;
+
+        try {
+          const url = record.url?.trim() || `placeholder://${Date.now()}-${Math.random()}`;
+          const isPlaceholder = url.startsWith("placeholder://");
+          const platform = isPlaceholder ? "Unknown" : getPlatformFromUrl(url);
+          let creatorName = record.creator_name?.trim() || record.handle?.trim();
+          const rawStatus = record.status?.toLowerCase()?.trim() || "pending";
+          const postStatus = validStatuses.has(rawStatus as any) ? rawStatus : "pending";
+
+          let matchedCreator: typeof existingLinks[0] | undefined;
+
+          // Try to match with existing creator if this is a real URL
+          if (!isPlaceholder) {
+            if (creatorName) {
+              // Try exact match
+              const key = createCreatorKey(campaignId, creatorName, platform);
+              matchedCreator = creatorMap.get(key);
+
+              if (!matchedCreator) {
+                const keyNoPlatform = createCreatorKey(campaignId, creatorName);
+                matchedCreator = creatorMap.get(keyNoPlatform);
+              }
+            }
+
+            // Try inferring from URL
+            if (!matchedCreator && !creatorName) {
+              const inferredHandle = extractHandleFromUrl(url, platform);
+              if (inferredHandle) {
+                const key = createCreatorKey(campaignId, inferredHandle, platform);
+                matchedCreator = creatorMap.get(key);
+
+                if (!matchedCreator) {
+                  const keyNoPlatform = createCreatorKey(campaignId, inferredHandle);
+                  matchedCreator = creatorMap.get(keyNoPlatform);
+                }
+
+                if (!creatorName) {
+                  creatorName = inferredHandle;
+                }
+              }
+            }
+          }
+
+          // Update existing creator or create new
+          if (matchedCreator && !isPlaceholder) {
+            await storage.updateSocialLink(matchedCreator.id, {
+              url,
+              platform,
+              postStatus: "active", // Auto-activate
+              views: 0,
+              likes: 0,
+              comments: 0,
+              shares: 0,
+            });
+            matched++;
+
+            // Remove from map
+            const key = createCreatorKey(campaignId, matchedCreator.creatorName!, matchedCreator.platform);
+            creatorMap.delete(key);
+          } else {
+            await storage.createSocialLink({
+              campaignId,
+              url,
+              platform,
+              creatorName: creatorName || null,
+              postStatus: isPlaceholder ? postStatus as "pending" | "briefed" | "active" | "done" : "active",
+              views: 0,
+              likes: 0,
+              comments: 0,
+              shares: 0,
+            });
+            created++;
+          }
+        } catch (err) {
+          console.error("Error importing row:", err);
+        }
+      }
+
+      res.json({ ok: true, inserted: matched + created, matched, created });
     } catch (error) {
       console.error("Failed to import CSV:", error);
       res.status(500).json({ error: "Failed to import CSV file" });

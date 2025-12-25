@@ -73,6 +73,7 @@ import {
 } from "lucide-react";
 import ShareCampaignModal from "@/components/ShareCampaignModal";
 import CsvImportModal from "@/components/CsvImportModal";
+import ImportCreatorsCsvModal from "@/components/ImportCreatorsCsvModal";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   useCampaigns,
@@ -598,6 +599,7 @@ export default function CampaignDetail() {
   const [editLink, setEditLink] = useState<SocialLink | null>(null);
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [csvImportOpen, setCsvImportOpen] = useState(false);
+  const [importCreatorsCsvOpen, setImportCreatorsCsvOpen] = useState(false);
   const [timeRange, setTimeRange] = useState<TimeRange>("7d");
   const [linkToDelete, setLinkToDelete] = useState<SocialLink | null>(null);
   const [deleteCampaignOpen, setDeleteCampaignOpen] = useState(false);
@@ -1413,6 +1415,14 @@ export default function CampaignDetail() {
                 <Upload className="h-4 w-4 mr-2" />
                 Import CSV
               </Button>
+              <Button
+                variant="outline"
+                onClick={() => setImportCreatorsCsvOpen(true)}
+                data-testid="button-import-creators-csv"
+              >
+                <Upload className="h-4 w-4 mr-2" />
+                Import Creators CSV
+              </Button>
               <Button onClick={() => setAddCreatorOpen(true)} data-testid="button-add-creator">
                 <Plus className="h-4 w-4 mr-2" />
                 Add Creator
@@ -1789,6 +1799,13 @@ export default function CampaignDetail() {
       <CsvImportModal
         open={csvImportOpen}
         onClose={() => setCsvImportOpen(false)}
+        campaignId={campaignId || 0}
+        onImportSuccess={handleImportSuccess}
+      />
+
+      <ImportCreatorsCsvModal
+        open={importCreatorsCsvOpen}
+        onClose={() => setImportCreatorsCsvOpen(false)}
         campaignId={campaignId || 0}
         onImportSuccess={handleImportSuccess}
       />

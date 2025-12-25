@@ -45,6 +45,7 @@ export const socialLinks = pgTable("social_links", {
   platform: text("platform").notNull(),
   postId: text("post_id"),
   creatorName: text("creator_name"),
+  normalizedHandle: text("normalized_handle"),  // Auto-populated normalized creator handle
   postStatus: text("post_status").notNull().default("pending"),
   views: integer("views").default(0),
   likes: integer("likes").default(0),
@@ -63,6 +64,7 @@ export const insertSocialLinkSchema = createInsertSchema(socialLinks).omit({
   lastScrapedAt: true,
   status: true,
   errorMessage: true,
+  normalizedHandle: true,  // Auto-populated by database trigger
 });
 
 export type InsertSocialLink = z.infer<typeof insertSocialLinkSchema>;
