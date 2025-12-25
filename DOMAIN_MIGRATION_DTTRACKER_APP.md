@@ -9,20 +9,21 @@ December 25, 2025
 
 #### Local (.env file)
 ```bash
-RESEND_FROM_EMAIL=Campaign Tracker <noreply@dttracker.app>
+RESEND_FROM_EMAIL=support@dttracker.app
 APP_URL=https://dttracker.app
+RESEND_API_KEY=re_RMR4riHP_Kk5mTPfZmhncjzUPnhgwMzia
 ```
 
 #### Railway Production
 ```bash
-RESEND_FROM_EMAIL=Campaign Tracker <noreply@dttracker.app>
+RESEND_FROM_EMAIL=support@dttracker.app
 APP_URL=https://dttracker.app
-RESEND_API_KEY=re_jkgh1Hsh_BLdB9cJAsCEyYFaqn58hB6gv
+RESEND_API_KEY=re_RMR4riHP_Kk5mTPfZmhncjzUPnhgwMzia
 ```
 
 ### 2. Email Configuration
 
-All emails are now sent from: **noreply@dttracker.app**
+All emails are now sent from: **support@dttracker.app**
 
 Email functions affected:
 - `sendVerificationEmail()` - Signup verification codes
@@ -135,7 +136,7 @@ Wait 5-60 minutes for:
 
 ### Email Delivery
 - [ ] Signup verification email received
-- [ ] Email from address shows: noreply@dttracker.app
+- [ ] Email from address shows: support@dttracker.app
 - [ ] Password reset email received
 - [ ] Workspace invitation email received
 - [ ] All email links point to dttracker.app
@@ -181,8 +182,8 @@ Wait 5-60 minutes for:
    railway variables | grep RESEND
    ```
    Should show:
-   - `RESEND_API_KEY`: re_...
-   - `RESEND_FROM_EMAIL`: Campaign Tracker <noreply@dttracker.app>
+   - `RESEND_API_KEY`: re_RMR4riHP_Kk5mTPfZmhncjzUPnhgwMzia
+   - `RESEND_FROM_EMAIL`: support@dttracker.app
 
 ### Domain Not Loading
 
